@@ -180,7 +180,13 @@ func (m Model) renderFullNote() string {
 		s.WriteString("\n")
 	}
 
-	// --- Footer: separator + status bar + help ---
+	// Pad content area so footer is always at the bottom
+	rendered := end - start
+	for i := rendered; i < maxLines; i++ {
+		s.WriteString("\n")
+	}
+
+	// --- Footer: separator + status bar ---
 	s.WriteString(lipgloss.NewStyle().
 		Foreground(theme.Current.Separator).
 		Render(strings.Repeat("─", m.width)))
