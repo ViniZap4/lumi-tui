@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
@@ -22,6 +23,17 @@ func glamourStyle() string {
 	}
 	return "light"
 }
+
+// --- Toast types ---
+
+// ToastLevel controls the visual style of a toast notification.
+type ToastLevel int
+
+const (
+	ToastSuccess ToastLevel = iota
+	ToastError
+	ToastInfo
+)
 
 // --- Messages ---
 
@@ -47,7 +59,31 @@ type editorDoneMsg struct {
 	notePath string
 }
 
+// toastDismissMsg auto-dismisses a toast after a timeout.
+type toastDismissMsg struct {
+	id int
+}
+
+// syncConnectedMsg signals that the WebSocket connected successfully.
+type syncConnectedMsg struct{}
+
+// syncErrorMsg signals a WebSocket connection failure.
+type syncErrorMsg struct {
+	err error
+}
+
 // --- Commands ---
+
+// showToast sets the toast state and returns a tick command for auto-dismiss.
+func (m *Model) showToast(msg string, level ToastLevel, d time.Duration) tea.Cmd {
+	m.toastID++
+	m.toastMsg = msg
+	m.toastLevel = level
+	id := m.toastID
+	return tea.Tick(d, func(time.Time) tea.Msg {
+		return toastDismissMsg{id: id}
+	})
+}
 
 // waitForSyncEvent blocks until a sync event is received from the server.
 func (m Model) waitForSyncEvent() tea.Msg {
@@ -59,6 +95,21 @@ func (m Model) waitForSyncEvent() tea.Msg {
 		return nil
 	}
 	return syncEventMsg{event: evt}
+}
+
+// waitForSyncStatus blocks until a sync status change is received.
+func (m Model) waitForSyncStatus() tea.Msg {
+	if m.syncClient == nil {
+		return nil
+	}
+	status, ok := <-m.syncClient.Status()
+	if !ok {
+		return nil
+	}
+	if status.Connected {
+		return syncConnectedMsg{}
+	}
+	return syncErrorMsg{err: status.Err}
 }
 
 func (m Model) loadItems() tea.Msg {

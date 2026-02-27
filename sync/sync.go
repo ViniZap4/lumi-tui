@@ -17,11 +17,18 @@ type Event struct {
 	Note json.RawMessage `json:"note,omitempty"`
 }
 
+// StatusMsg reports connection state changes to the UI layer.
+type StatusMsg struct {
+	Connected bool
+	Err       error
+}
+
 // Client manages a WebSocket connection to the lumi server for real-time sync.
 type Client struct {
-	cfg     *config.FolderConfig
-	eventCh chan Event
-	done    chan struct{}
+	cfg      *config.FolderConfig
+	eventCh  chan Event
+	statusCh chan StatusMsg
+	done     chan struct{}
 }
 
 // NewClient creates a new sync client from a folder config.
@@ -31,9 +38,10 @@ func NewClient(cfg *config.FolderConfig) *Client {
 		return nil
 	}
 	return &Client{
-		cfg:     cfg,
-		eventCh: make(chan Event, 32),
-		done:    make(chan struct{}),
+		cfg:      cfg,
+		eventCh:  make(chan Event, 32),
+		statusCh: make(chan StatusMsg, 8),
+		done:     make(chan struct{}),
 	}
 }
 
@@ -50,6 +58,11 @@ func (c *Client) Stop() {
 // Events returns the channel that receives sync events.
 func (c *Client) Events() <-chan Event {
 	return c.eventCh
+}
+
+// Status returns the channel that receives connection status changes.
+func (c *Client) Status() <-chan StatusMsg {
+	return c.statusCh
 }
 
 func (c *Client) connectLoop() {
@@ -80,12 +93,21 @@ func (c *Client) connect() {
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		log.Printf("sync: failed to connect to %s: %v", wsURL, err)
+		select {
+		case c.statusCh <- StatusMsg{Connected: false, Err: err}:
+		default:
+		}
 		return
 	}
 	defer conn.Close()
 
 	// Send subscribe message
 	conn.WriteJSON(map[string]string{"type": "subscribe"})
+
+	select {
+	case c.statusCh <- StatusMsg{Connected: true}:
+	default:
+	}
 
 	for {
 		select {
@@ -97,6 +119,10 @@ func (c *Client) connect() {
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
 			log.Printf("sync: connection lost: %v", err)
+			select {
+			case c.statusCh <- StatusMsg{Connected: false, Err: err}:
+			default:
+			}
 			return
 		}
 

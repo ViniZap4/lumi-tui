@@ -23,7 +23,7 @@ func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.loadItems, animTick()}
 	if m.syncClient != nil {
 		m.syncClient.Start()
-		cmds = append(cmds, m.waitForSyncEvent)
+		cmds = append(cmds, m.waitForSyncEvent, m.waitForSyncStatus)
 	}
 	return tea.Batch(cmds...)
 }
@@ -74,6 +74,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.openNote(reloaded)
 		}
 		return m, m.loadItems
+
+	case toastDismissMsg:
+		if msg.id == m.toastID {
+			m.toastMsg = ""
+		}
+		return m, nil
+
+	case syncConnectedMsg:
+		cmd := m.showToast("Server connected", ToastSuccess, 3*time.Second)
+		return m, tea.Batch(cmd, m.waitForSyncStatus)
+
+	case syncErrorMsg:
+		cmd := m.showToast("Sync failed", ToastError, 3*time.Second)
+		return m, tea.Batch(cmd, m.waitForSyncStatus)
 
 	case syncEventMsg:
 		// A note was changed on the server — reload items.

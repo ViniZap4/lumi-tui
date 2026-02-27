@@ -45,6 +45,8 @@ func (m Model) View() string {
 		}
 	}
 
+	content = m.overlayToast(content)
+
 	return m.fillBg(content)
 }
 
@@ -121,4 +123,104 @@ func (m Model) renderBase() string {
 	default:
 		return m.renderTree()
 	}
+}
+
+// overlayToast renders a toast notification at the top-right corner of the terminal.
+func (m Model) overlayToast(content string) string {
+	if m.toastMsg == "" {
+		return content
+	}
+
+	var style lipgloss.Style
+	switch m.toastLevel {
+	case ToastSuccess:
+		style = ToastSuccessStyle
+	case ToastError:
+		style = ToastErrorStyle
+	case ToastInfo:
+		style = ToastInfoStyle
+	default:
+		style = ToastInfoStyle
+	}
+
+	toast := style.Render(m.toastMsg)
+	toastW := lipgloss.Width(toast)
+
+	if toastW+2 > m.width {
+		return content
+	}
+
+	lines := strings.Split(content, "\n")
+	if len(lines) < 2 {
+		return content
+	}
+
+	// Place toast on the second line, right-aligned with 1-col margin
+	row := 1
+	lineRunes := []rune(stripAnsi(lines[row]))
+	lineW := len(lineRunes)
+
+	startCol := m.width - toastW - 1
+	if startCol < 0 {
+		startCol = 0
+	}
+
+	// Pad the line if it's shorter than the toast start position
+	if lineW < startCol {
+		lines[row] = lines[row] + strings.Repeat(" ", startCol-lineW)
+	}
+
+	// Overlay the toast onto the line
+	prefix := truncateToVisualWidth(lines[row], startCol)
+	lines[row] = prefix + toast
+
+	return strings.Join(lines, "\n")
+}
+
+// stripAnsi removes ANSI escape sequences from a string.
+func stripAnsi(s string) string {
+	var out []rune
+	inEsc := false
+	for _, r := range s {
+		if r == '\x1b' {
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+				inEsc = false
+			}
+			continue
+		}
+		out = append(out, r)
+	}
+	return string(out)
+}
+
+// truncateToVisualWidth returns the prefix of an ANSI-containing string
+// that occupies exactly w visual columns.
+func truncateToVisualWidth(s string, w int) string {
+	var out strings.Builder
+	col := 0
+	inEsc := false
+	for _, r := range s {
+		if col >= w && !inEsc {
+			break
+		}
+		if r == '\x1b' {
+			inEsc = true
+			out.WriteRune(r)
+			continue
+		}
+		if inEsc {
+			out.WriteRune(r)
+			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+				inEsc = false
+			}
+			continue
+		}
+		out.WriteRune(r)
+		col++
+	}
+	return out.String()
 }

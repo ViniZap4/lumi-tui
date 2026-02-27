@@ -50,6 +50,11 @@ var (
 
 	// Status bar
 	StatusBarStyle lipgloss.Style
+
+	// Toast notification styles
+	ToastSuccessStyle lipgloss.Style
+	ToastErrorStyle   lipgloss.Style
+	ToastInfoStyle    lipgloss.Style
 )
 
 // ApplyTheme rebuilds all package-level style vars from theme.Current.
@@ -126,6 +131,24 @@ func ApplyTheme() {
 		Foreground(t.Primary).
 		Bold(true).
 		Padding(0, 1)
+
+	ToastSuccessStyle = lipgloss.NewStyle().
+		Background(t.SelectedBg).
+		Foreground(t.Primary).
+		Bold(true).
+		Padding(0, 2)
+
+	ToastErrorStyle = lipgloss.NewStyle().
+		Background(t.SelectedBg).
+		Foreground(t.Error).
+		Bold(true).
+		Padding(0, 2)
+
+	ToastInfoStyle = lipgloss.NewStyle().
+		Background(t.SelectedBg).
+		Foreground(t.Info).
+		Bold(true).
+		Padding(0, 2)
 }
 
 // blendHex linearly blends two hex lipgloss.Colors. ratio=0 returns c1, ratio=1 returns c2.

@@ -23,8 +23,8 @@ type VisualModeType int
 
 const (
 	VisualNone VisualModeType = iota
-	VisualChar               // v - character-wise selection
-	VisualLine               // V - line-wise selection
+	VisualChar                // v - character-wise selection
+	VisualLine                // V - line-wise selection
 )
 
 // ConfigItemKind represents the kind of config item.
@@ -41,7 +41,7 @@ const (
 type ConfigItem struct {
 	Label   string
 	Kind    ConfigItemKind
-	Key     string   // config field key
+	Key     string // config field key
 	Value   string
 	Options []string // for Cycle kind
 }
@@ -60,12 +60,12 @@ type Model struct {
 	rootDir      string
 	currentDir   string
 	folderConfig *config.FolderConfig
-	items      []Item
-	cursor     int
-	width      int
-	height     int
-	viewMode   ViewMode
-	renderer   *glamour.TermRenderer
+	items        []Item
+	cursor       int
+	width        int
+	height       int
+	viewMode     ViewMode
+	renderer     *glamour.TermRenderer
 
 	// Home animation (diagonal left-to-right wipe)
 	animCol  int  // how many rune columns have been revealed
@@ -91,12 +91,12 @@ type Model struct {
 	statusMsg string
 
 	// Yank highlight flash (brief visual feedback after yanking)
-	yankHighlight  bool
-	yankMode       VisualModeType
-	yankStartLine  int
-	yankEndLine    int
-	yankStartCol   int
-	yankEndCol     int
+	yankHighlight bool
+	yankMode      VisualModeType
+	yankStartLine int
+	yankEndLine   int
+	yankStartCol  int
+	yankEndCol    int
 
 	// Modals
 	showNav    bool
@@ -129,6 +129,11 @@ type Model struct {
 
 	// Real-time sync
 	syncClient *sync.Client
+
+	// Toast notifications
+	toastMsg   string
+	toastLevel ToastLevel
+	toastID    int
 
 	// Config view state
 	configCursor int
