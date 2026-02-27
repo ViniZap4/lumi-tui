@@ -81,7 +81,7 @@ func (m Model) updateNote(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			if m.fullNote != nil {
 				notePath := m.fullNote.Path
-				return m, tea.ExecProcess(editor.OpenCmd(m.fullNote), func(err error) tea.Msg {
+				return m, tea.ExecProcess(editor.OpenCmdAt(m.fullNote, m.lineCursor, m.colCursor), func(err error) tea.Msg {
 					return editorDoneMsg{notePath: notePath}
 				})
 			}
