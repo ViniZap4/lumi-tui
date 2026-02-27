@@ -92,6 +92,15 @@ updated_at: %s
 	return newNote, nil
 }
 
+func MoveFolder(oldPath, destDir string) error {
+	newPath := filepath.Join(destDir, filepath.Base(oldPath))
+	// Prevent circular move (moving folder into itself or a subfolder)
+	if strings.HasPrefix(newPath+string(os.PathSeparator), oldPath+string(os.PathSeparator)) {
+		return fmt.Errorf("cannot move folder into itself")
+	}
+	return os.Rename(oldPath, newPath)
+}
+
 func MoveNote(note *domain.Note, destDir string) error {
 	newPath := filepath.Join(destDir, filepath.Base(note.Path))
 	if err := os.Rename(note.Path, newPath); err != nil {

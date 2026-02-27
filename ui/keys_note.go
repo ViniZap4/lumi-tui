@@ -185,6 +185,8 @@ func (m Model) updateNavModal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.showNav = false
 		m.linkInsertMode = false
+		m.pendingMoveNote = nil
+		m.pendingMoveFolder = ""
 		// If we opened nav for split and didn't pick, cancel split
 		if m.splitNote == nil {
 			m.splitMode = ""

@@ -2,12 +2,16 @@ package ui
 
 import (
 	"path/filepath"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/vinizap/lumi/tui-client/filesystem"
 )
 
 func (m Model) updateTree(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.showNav {
+		return m.updateTreeNavModal(msg)
+	}
 	if m.showSearch && !m.inFileSearch {
 		return m.updateTreeSearch(msg)
 	}
@@ -94,6 +98,23 @@ func (m Model) updateTree(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+	case "m":
+		if m.cursor < len(m.items) {
+			item := m.items[m.cursor]
+			if item.IsFolder {
+				m.pendingMoveFolder = item.Path
+				m.pendingMoveNote = nil
+			} else if item.Note != nil {
+				m.pendingMoveNote = item.Note
+				m.pendingMoveFolder = ""
+			} else {
+				return m, nil
+			}
+			m.showNav = true
+			m.navDir = m.rootDir
+			m.navCursor = 0
+			return m, m.loadNavItems
+		}
 	case "D":
 		if m.cursor < len(m.items) && m.items[m.cursor].Note != nil {
 			if _, err := filesystem.DuplicateNote(m.items[m.cursor].Note); err == nil {
@@ -108,6 +129,72 @@ func (m Model) updateTree(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "G":
 		if len(m.items) > 0 {
 			m.cursor = len(m.items) - 1
+		}
+	}
+
+	return m, nil
+}
+
+// updateTreeNavModal handles keys when the navigation modal is open from tree view (for move).
+func (m Model) updateTreeNavModal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.showNav = false
+		m.pendingMoveNote = nil
+		m.pendingMoveFolder = ""
+		return m, nil
+	case "j", "down":
+		if m.navCursor < len(m.navItems)-1 {
+			m.navCursor++
+		}
+	case "k", "up":
+		if m.navCursor > 0 {
+			m.navCursor--
+		}
+	case "h":
+		if m.navDir != m.rootDir {
+			m.navDir = filepath.Dir(m.navDir)
+			m.navCursor = 0
+			return m, m.loadNavItems
+		}
+	case "l":
+		if m.navCursor < len(m.navItems) {
+			item := m.navItems[m.navCursor]
+			if item.IsFolder {
+				m.navDir = item.Path
+				m.navCursor = 0
+				return m, m.loadNavItems
+			}
+		}
+	case "enter":
+		destDir := m.navDir
+		if m.navCursor < len(m.navItems) {
+			item := m.navItems[m.navCursor]
+			if item.IsFolder {
+				destDir = item.Path
+			}
+		}
+
+		if m.pendingMoveNote != nil {
+			filesystem.MoveNote(m.pendingMoveNote, destDir)
+			m.pendingMoveNote = nil
+			m.showNav = false
+			return m, m.loadItems
+		}
+		if m.pendingMoveFolder != "" {
+			if strings.HasPrefix(destDir+string(filepath.Separator), m.pendingMoveFolder+string(filepath.Separator)) {
+				return m, nil
+			}
+			filesystem.MoveFolder(m.pendingMoveFolder, destDir)
+			m.pendingMoveFolder = ""
+			m.showNav = false
+			return m, m.loadItems
+		}
+	case "g":
+		m.navCursor = 0
+	case "G":
+		if len(m.navItems) > 0 {
+			m.navCursor = len(m.navItems) - 1
 		}
 	}
 

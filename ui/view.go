@@ -41,7 +41,11 @@ func (m Model) View() string {
 				content = m.renderFullNote()
 			}
 		default:
-			content = m.renderTree()
+			if m.showNav {
+				content = m.renderWithNavModal(m.renderTree())
+			} else {
+				content = m.renderTree()
+			}
 		}
 	}
 
@@ -145,11 +149,19 @@ func (m Model) renderCommandBar() string {
 			{"esc", "close"},
 		}
 	case m.showNav:
-		keys = []struct{ key, desc string }{
-			{"hjkl", "navigate"},
-			{"enter", "open"},
-			{"s/S", "split"},
-			{"esc", "close"},
+		if m.pendingMoveNote != nil || m.pendingMoveFolder != "" {
+			keys = []struct{ key, desc string }{
+				{"hjkl", "navigate"},
+				{"enter", "move here"},
+				{"esc", "cancel"},
+			}
+		} else {
+			keys = []struct{ key, desc string }{
+				{"hjkl", "navigate"},
+				{"enter", "open"},
+				{"s/S", "split"},
+				{"esc", "close"},
+			}
 		}
 	default:
 		switch m.viewMode {
@@ -162,6 +174,7 @@ func (m Model) renderCommandBar() string {
 				{"N", "new folder"},
 				{"r", "rename"},
 				{"d", "delete"},
+				{"m", "move"},
 				{"/", "search"},
 				{"q", "quit"},
 			}

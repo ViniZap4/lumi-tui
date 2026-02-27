@@ -131,6 +131,10 @@ type Model struct {
 	pendingDeleteNote   *domain.Note
 	pendingDeleteFolder string
 
+	// Pending move operation
+	pendingMoveNote   *domain.Note
+	pendingMoveFolder string
+
 	// Real-time sync
 	syncClient *sync.Client
 
