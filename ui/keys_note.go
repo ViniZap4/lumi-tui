@@ -9,7 +9,7 @@ import (
 )
 
 func (m Model) updateNote(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	m.statusMsg = ""      // clear transient message on any keypress
+	m.statusMsg = ""        // clear transient message on any keypress
 	m.yankHighlight = false // clear yank flash on any keypress
 
 	if m.showSearch {

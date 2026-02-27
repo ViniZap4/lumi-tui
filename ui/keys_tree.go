@@ -130,4 +130,3 @@ func (m Model) updateTreeSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	return m, nil
 }
-

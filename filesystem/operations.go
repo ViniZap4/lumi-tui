@@ -13,7 +13,7 @@ import (
 func CreateNote(rootDir, title string) (*domain.Note, error) {
 	id := generateID(title)
 	path := filepath.Join(rootDir, id+".md")
-	
+
 	note := &domain.Note{
 		ID:        id,
 		Title:     title,
@@ -23,7 +23,7 @@ func CreateNote(rootDir, title string) (*domain.Note, error) {
 		UpdatedAt: time.Now(),
 		Path:      path,
 	}
-	
+
 	content := fmt.Sprintf(`---
 id: %s
 title: %s
@@ -35,11 +35,11 @@ updated_at: %s
 # %s
 
 `, note.ID, note.Title, note.CreatedAt.Format(time.RFC3339), note.UpdatedAt.Format(time.RFC3339), note.Title)
-	
+
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		return nil, err
 	}
-	
+
 	note.Content = content
 	return note, nil
 }
@@ -57,7 +57,7 @@ func DeleteNote(note *domain.Note) error {
 func DuplicateNote(note *domain.Note) (*domain.Note, error) {
 	newID := generateID(note.Title + "-copy")
 	newPath := filepath.Join(filepath.Dir(note.Path), newID+".md")
-	
+
 	newNote := &domain.Note{
 		ID:        newID,
 		Title:     note.Title + " (copy)",
@@ -67,13 +67,13 @@ func DuplicateNote(note *domain.Note) (*domain.Note, error) {
 		UpdatedAt: time.Now(),
 		Path:      newPath,
 	}
-	
+
 	bodyStart := strings.Index(note.Content, "---\n\n")
 	body := ""
 	if bodyStart >= 0 {
 		body = note.Content[bodyStart+5:]
 	}
-	
+
 	content := fmt.Sprintf(`---
 id: %s
 title: %s
@@ -83,11 +83,11 @@ updated_at: %s
 ---
 
 %s`, newNote.ID, newNote.Title, newNote.Tags, newNote.CreatedAt.Format(time.RFC3339), newNote.UpdatedAt.Format(time.RFC3339), body)
-	
+
 	if err := os.WriteFile(newPath, []byte(content), 0644); err != nil {
 		return nil, err
 	}
-	
+
 	newNote.Content = content
 	return newNote, nil
 }
@@ -111,7 +111,7 @@ updated_at: %s
 ---
 
 %s`, note.ID, note.Title, note.Tags, note.CreatedAt.Format(time.RFC3339), note.UpdatedAt.Format(time.RFC3339), note.Content)
-	
+
 	return os.WriteFile(note.Path, []byte(content), 0644)
 }
 

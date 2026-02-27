@@ -9,8 +9,8 @@ import (
 )
 
 type Config struct {
-	Editor      string
-	EditorArgs  []string
+	Editor     string
+	EditorArgs []string
 
 	// Theme settings
 	ThemeMode  string // "dark", "light", "auto"
