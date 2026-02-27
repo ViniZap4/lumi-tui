@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -86,7 +87,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, m.waitForSyncStatus)
 
 	case syncErrorMsg:
-		cmd := m.showToast("Sync failed", ToastError, 3*time.Second)
+		toastText := classifySyncError(msg.err)
+		cmd := m.showToast(toastText, ToastError, 4*time.Second)
 		return m, tea.Batch(cmd, m.waitForSyncStatus)
 
 	case syncEventMsg:
@@ -126,4 +128,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// classifySyncError returns a user-friendly toast message for sync errors.
+func classifySyncError(err error) string {
+	if err == nil {
+		return "Sync: unknown error"
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "connection refused"):
+		return "Sync: connection refused"
+	case strings.Contains(msg, "no such host"):
+		return "Sync: server not found"
+	case strings.Contains(msg, "401") || strings.Contains(msg, "403"):
+		return "Sync: auth failed"
+	case strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline exceeded"):
+		return "Sync: timeout"
+	case strings.Contains(msg, "EOF") || strings.Contains(msg, "connection reset"):
+		return "Sync: connection lost"
+	default:
+		text := "Sync: " + msg
+		if len(text) > 45 {
+			text = text[:42] + "..."
+		}
+		return text
+	}
 }

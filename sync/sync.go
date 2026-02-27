@@ -2,7 +2,6 @@ package sync
 
 import (
 	"encoding/json"
-	"log"
 	"net/url"
 	"strings"
 	"time"
@@ -92,7 +91,6 @@ func (c *Client) connect() {
 
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
-		log.Printf("sync: failed to connect to %s: %v", wsURL, err)
 		select {
 		case c.statusCh <- StatusMsg{Connected: false, Err: err}:
 		default:
@@ -118,7 +116,6 @@ func (c *Client) connect() {
 
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
-			log.Printf("sync: connection lost: %v", err)
 			select {
 			case c.statusCh <- StatusMsg{Connected: false, Err: err}:
 			default:

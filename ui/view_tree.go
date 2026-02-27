@@ -34,7 +34,7 @@ func (m Model) renderTree() string {
 	s.WriteString(lipgloss.NewStyle().Foreground(theme.Current.Separator).Render(strings.Repeat("-", m.width)))
 	s.WriteString("\n")
 
-	// Three columns
+	// Three columns (header 2 + separator + cmd bar = 4 lines reserved)
 	colHeight := m.height - 4
 	leftCol := m.renderParentCol(leftWidth, colHeight)
 	centerCol := m.renderCenterCol(centerWidth, colHeight)
@@ -52,10 +52,6 @@ func (m Model) renderTree() string {
 	)
 	s.WriteString(columns)
 
-	// Bottom bar
-	s.WriteString("\n")
-	s.WriteString(m.renderTreeHelp())
-
 	return s.String()
 }
 
@@ -67,28 +63,6 @@ func (m Model) displayPath() string {
 	return "~" + pathDisplay
 }
 
-func (m Model) renderTreeHelp() string {
-	keys := []struct{ key, desc string }{
-		{"j/k", "move"},
-		{"l/enter", "open"},
-		{"h", "back"},
-		{"n", "new"},
-		{"r", "rename"},
-		{"d", "delete"},
-		{"/", "search"},
-		{"c", "config"},
-		{"q", "quit"},
-	}
-
-	var parts []string
-	for _, k := range keys {
-		key := lipgloss.NewStyle().Foreground(secondaryColor).Bold(true).Render(k.key)
-		desc := lipgloss.NewStyle().Foreground(mutedColor).Render(" " + k.desc)
-		parts = append(parts, key+desc)
-	}
-
-	return lipgloss.NewStyle().Padding(0, 1).Render(strings.Join(parts, "  "))
-}
 
 func (m Model) renderParentCol(width, height int) string {
 	var s strings.Builder

@@ -112,6 +112,9 @@ type Model struct {
 	splitMode string
 	splitNote *domain.Note
 
+	// Link insertion mode (L key opens nav to pick a note for link)
+	linkInsertMode bool
+
 	// Search state
 	searchQuery   string
 	searchType    string
@@ -123,9 +126,10 @@ type Model struct {
 	inputValue string
 
 	// Confirm modal (delete confirmation)
-	showConfirm       bool
-	confirmMsg        string
-	pendingDeleteNote *domain.Note
+	showConfirm         bool
+	confirmMsg          string
+	pendingDeleteNote   *domain.Note
+	pendingDeleteFolder string
 
 	// Real-time sync
 	syncClient *sync.Client

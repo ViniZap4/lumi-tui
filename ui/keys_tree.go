@@ -54,19 +54,45 @@ func (m Model) updateTree(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputMode = "create"
 		m.inputValue = ""
 		return m, nil
+	case "N":
+		m.showInput = true
+		m.inputMode = "create_folder"
+		m.inputValue = ""
+		return m, nil
 	case "d":
-		if m.cursor < len(m.items) && m.items[m.cursor].Note != nil {
-			m.pendingDeleteNote = m.items[m.cursor].Note
-			m.confirmMsg = "Delete \"" + m.pendingDeleteNote.Title + "\"?"
-			m.showConfirm = true
-			return m, nil
+		if m.cursor < len(m.items) {
+			item := m.items[m.cursor]
+			if item.IsFolder {
+				empty, _ := filesystem.IsFolderEmpty(item.Path)
+				msg := "Delete folder \"" + item.Name + "\"?"
+				if !empty {
+					msg = "Delete folder \"" + item.Name + "\"? (non-empty, all contents will be lost)"
+				}
+				m.pendingDeleteFolder = item.Path
+				m.confirmMsg = msg
+				m.showConfirm = true
+				return m, nil
+			} else if item.Note != nil {
+				m.pendingDeleteNote = item.Note
+				m.confirmMsg = "Delete \"" + m.pendingDeleteNote.Title + "\"?"
+				m.showConfirm = true
+				return m, nil
+			}
 		}
 	case "r":
-		if m.cursor < len(m.items) && m.items[m.cursor].Note != nil {
-			m.showInput = true
-			m.inputMode = "rename"
-			m.inputValue = m.items[m.cursor].Note.Title
-			return m, nil
+		if m.cursor < len(m.items) {
+			item := m.items[m.cursor]
+			if item.IsFolder {
+				m.showInput = true
+				m.inputMode = "rename_folder"
+				m.inputValue = item.Name
+				return m, nil
+			} else if item.Note != nil {
+				m.showInput = true
+				m.inputMode = "rename"
+				m.inputValue = item.Note.Title
+				return m, nil
+			}
 		}
 	case "D":
 		if m.cursor < len(m.items) && m.items[m.cursor].Note != nil {

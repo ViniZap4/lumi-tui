@@ -193,28 +193,6 @@ func (m Model) renderFullNote() string {
 		status := fmt.Sprintf("Ln %d  Col %d%s", m.lineCursor+1, m.colCursor+1, mode)
 		s.WriteString(StatusBarStyle.Width(m.width).Render(status))
 	}
-	s.WriteString("\n")
-
-	helpKeys := []struct{ key, desc string }{
-		{"j/k", "move"},
-		{"h/l", "cols"},
-		{"w/b", "word"},
-		{"g/G", "top/end"},
-		{"v/V", "visual"},
-		{"y", "yank"},
-		{"e", "edit"},
-		{"t", "tree"},
-		{"x", "open url"},
-		{"/", "search"},
-		{"esc", "back"},
-	}
-	var parts []string
-	for _, k := range helpKeys {
-		key := lipgloss.NewStyle().Foreground(secondaryColor).Bold(true).Render(k.key)
-		desc := lipgloss.NewStyle().Foreground(mutedColor).Render(" " + k.desc)
-		parts = append(parts, key+desc)
-	}
-	s.WriteString(lipgloss.NewStyle().Padding(0, 1).Render(strings.Join(parts, "  ")))
 
 	return s.String()
 }

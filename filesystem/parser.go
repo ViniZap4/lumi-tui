@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/vinizap/lumi/tui-client/domain"
 	"gopkg.in/yaml.v3"
@@ -23,7 +24,19 @@ func ReadNote(path string) (*domain.Note, error) {
 	// Split frontmatter and content
 	parts := bytes.SplitN(data, []byte("---"), 3)
 	if len(parts) < 3 {
-		return nil, fmt.Errorf("invalid frontmatter format")
+		// No frontmatter: auto-generate metadata from filename and file stat
+		baseName := strings.TrimSuffix(filepath.Base(path), ".md")
+		note.ID = generateID(baseName)
+		note.Title = humanizeFilename(baseName)
+		note.Tags = []string{}
+		note.Content = string(bytes.TrimSpace(data))
+
+		if info, err := os.Stat(path); err == nil {
+			note.CreatedAt = info.ModTime()
+			note.UpdatedAt = info.ModTime()
+		}
+
+		return note, nil
 	}
 
 	// Parse frontmatter
@@ -76,6 +89,23 @@ func ListNotes(dir string) ([]*domain.Note, error) {
 	}
 
 	return notes, nil
+}
+
+// humanizeFilename converts a filename like "my-note" or "my_note" to "My Note".
+func humanizeFilename(name string) string {
+	// Replace hyphens and underscores with spaces
+	name = strings.NewReplacer("-", " ", "_", " ").Replace(name)
+	// Title-case each word
+	words := strings.Fields(name)
+	for i, w := range words {
+		runes := []rune(w)
+		runes[0] = unicode.ToUpper(runes[0])
+		words[i] = string(runes)
+	}
+	if len(words) == 0 {
+		return name
+	}
+	return strings.Join(words, " ")
 }
 
 func ListFolders(root string) ([]*domain.Folder, error) {

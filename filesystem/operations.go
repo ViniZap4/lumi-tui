@@ -115,6 +115,33 @@ updated_at: %s
 	return os.WriteFile(note.Path, []byte(content), 0644)
 }
 
+func CreateFolder(parentDir, name string) error {
+	path := filepath.Join(parentDir, name)
+	return os.MkdirAll(path, 0755)
+}
+
+func RenameFolder(oldPath, newName string) error {
+	newPath := filepath.Join(filepath.Dir(oldPath), newName)
+	return os.Rename(oldPath, newPath)
+}
+
+func DeleteFolder(path string) error {
+	return os.RemoveAll(path)
+}
+
+func IsFolderEmpty(path string) (bool, error) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), ".") {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 func generateID(title string) string {
 	id := strings.ToLower(title)
 	id = strings.ReplaceAll(id, " ", "-")

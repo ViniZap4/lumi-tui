@@ -161,6 +161,16 @@ func (m Model) updateNote(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+	// Link insertion — open nav modal to pick a note
+	case "L":
+		if m.visualMode == VisualNone {
+			m.linkInsertMode = true
+			m.showNav = true
+			m.navDir = m.currentDir
+			m.navCursor = 0
+			return m, m.loadNavItems
+		}
+
 	// Follow link / toggle checkbox
 	case "enter":
 		return m, m.followLinkAtCursor()
@@ -174,6 +184,7 @@ func (m Model) updateNavModal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.showNav = false
+		m.linkInsertMode = false
 		// If we opened nav for split and didn't pick, cancel split
 		if m.splitNote == nil {
 			m.splitMode = ""
@@ -201,7 +212,13 @@ func (m Model) updateNavModal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.navCursor = 0
 				return m, m.loadNavItems
 			} else if item.Note != nil {
-				if m.splitMode != "" {
+				if m.linkInsertMode {
+					// Insert a link to the selected note
+					m.insertLinkToNote(item.Note)
+					m.linkInsertMode = false
+					m.showNav = false
+					m.navCursor = 0
+				} else if m.splitMode != "" {
 					// We're picking a note for a split
 					m.splitNote = item.Note
 					m.showNav = false

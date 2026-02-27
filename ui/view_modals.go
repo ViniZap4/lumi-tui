@@ -66,21 +66,6 @@ func (m Model) renderWithNavModal(base string) string {
 		rightCol,
 	)
 
-	// Help bar
-	helpParts := []struct{ key, desc string }{
-		{"hjkl", "navigate"},
-		{"enter", "open"},
-		{"s/S", "split"},
-		{"esc", "close"},
-	}
-	var parts []string
-	for _, h := range helpParts {
-		key := lipgloss.NewStyle().Foreground(secondaryColor).Bold(true).Render(h.key)
-		desc := lipgloss.NewStyle().Foreground(mutedColor).Render(" " + h.desc)
-		parts = append(parts, key+desc)
-	}
-	helpLine := strings.Join(parts, "  ")
-
 	// Assemble modal content
 	var modal strings.Builder
 	modal.WriteString(header.String())
@@ -90,8 +75,6 @@ func (m Model) renderWithNavModal(base string) string {
 		Render(strings.Repeat("-", modalInner)))
 	modal.WriteString("\n")
 	modal.WriteString(columns)
-	modal.WriteString("\n")
-	modal.WriteString(helpLine)
 
 	modalBox := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -318,8 +301,16 @@ func (m Model) renderWithConfirmModal(base string) string {
 
 func (m Model) renderWithInputModal(base string) string {
 	title := "Create Note"
-	if m.inputMode == "rename" {
+	label := "Title: "
+	switch m.inputMode {
+	case "rename":
 		title = "Rename Note"
+	case "create_folder":
+		title = "Create Folder"
+		label = "Name: "
+	case "rename_folder":
+		title = "Rename Folder"
+		label = "Name: "
 	}
 
 	modalWidth := 60
@@ -327,7 +318,7 @@ func (m Model) renderWithInputModal(base string) string {
 	var s strings.Builder
 	s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(theme.Current.Warning).Render(title))
 	s.WriteString("\n\n")
-	s.WriteString("Title: ")
+	s.WriteString(label)
 	s.WriteString(lipgloss.NewStyle().Foreground(theme.Current.Info).Render(m.inputValue + "_"))
 	s.WriteString("\n\n")
 	s.WriteString(lipgloss.NewStyle().Foreground(theme.Current.TextDim).Render("Enter to confirm  Esc to cancel"))

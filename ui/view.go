@@ -45,6 +45,16 @@ func (m Model) View() string {
 		}
 	}
 
+	// Append persistent command bar (except for home view)
+	if cmdBar := m.renderCommandBar(); cmdBar != "" {
+		lines := strings.Split(content, "\n")
+		maxContent := m.height - 1
+		if len(lines) > maxContent {
+			lines = lines[:maxContent]
+		}
+		content = strings.Join(lines, "\n") + "\n" + cmdBar
+	}
+
 	content = m.overlayToast(content)
 
 	return m.fillBg(content)
@@ -110,6 +120,84 @@ func colorToAnsiBg(c lipgloss.Color) string {
 		return fmt.Sprintf("\x1b[48;5;%dm", n)
 	}
 	return ""
+}
+
+// renderCommandBar returns a context-aware keybind bar for the bottom of the screen.
+func (m Model) renderCommandBar() string {
+	var keys []struct{ key, desc string }
+
+	switch {
+	case m.showConfirm:
+		keys = []struct{ key, desc string }{
+			{"y/enter", "confirm"},
+			{"n/esc", "cancel"},
+		}
+	case m.showInput:
+		keys = []struct{ key, desc string }{
+			{"enter", "confirm"},
+			{"esc", "cancel"},
+		}
+	case m.showSearch && !m.inFileSearch:
+		keys = []struct{ key, desc string }{
+			{"ctrl+f", "toggle"},
+			{"up/dn", "navigate"},
+			{"enter", "open"},
+			{"esc", "close"},
+		}
+	case m.showNav:
+		keys = []struct{ key, desc string }{
+			{"hjkl", "navigate"},
+			{"enter", "open"},
+			{"s/S", "split"},
+			{"esc", "close"},
+		}
+	default:
+		switch m.viewMode {
+		case ViewTree:
+			keys = []struct{ key, desc string }{
+				{"j/k", "move"},
+				{"l/enter", "open"},
+				{"h", "back"},
+				{"n", "new note"},
+				{"N", "new folder"},
+				{"r", "rename"},
+				{"d", "delete"},
+				{"/", "search"},
+				{"q", "quit"},
+			}
+		case ViewFullNote:
+			keys = []struct{ key, desc string }{
+				{"j/k", "move"},
+				{"w/b", "word"},
+				{"v/V", "visual"},
+				{"y", "yank"},
+				{"e", "edit"},
+				{"enter", "follow"},
+				{"L", "link"},
+				{"t", "tree"},
+				{"/", "search"},
+				{"esc", "back"},
+			}
+		case ViewConfig:
+			keys = []struct{ key, desc string }{
+				{"j/k", "move"},
+				{"h/l", "change"},
+				{"enter", "select"},
+				{"esc", "back"},
+			}
+		default:
+			return ""
+		}
+	}
+
+	var parts []string
+	for _, k := range keys {
+		key := lipgloss.NewStyle().Foreground(secondaryColor).Bold(true).Render(k.key)
+		desc := lipgloss.NewStyle().Foreground(mutedColor).Render(" " + k.desc)
+		parts = append(parts, key+desc)
+	}
+
+	return lipgloss.NewStyle().Padding(0, 1).Render(strings.Join(parts, "  "))
 }
 
 func (m Model) renderBase() string {

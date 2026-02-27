@@ -8,7 +8,14 @@ import (
 func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "enter":
-		if m.pendingDeleteNote != nil {
+		if m.pendingDeleteFolder != "" {
+			if err := filesystem.DeleteFolder(m.pendingDeleteFolder); err == nil {
+				m.showConfirm = false
+				m.pendingDeleteFolder = ""
+				m.confirmMsg = ""
+				return m, m.loadItems
+			}
+		} else if m.pendingDeleteNote != nil {
 			if err := filesystem.DeleteNote(m.pendingDeleteNote); err == nil {
 				m.showConfirm = false
 				m.pendingDeleteNote = nil
@@ -18,11 +25,13 @@ func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.showConfirm = false
 		m.pendingDeleteNote = nil
+		m.pendingDeleteFolder = ""
 		m.confirmMsg = ""
 		return m, nil
 	case "n", "esc":
 		m.showConfirm = false
 		m.pendingDeleteNote = nil
+		m.pendingDeleteFolder = ""
 		m.confirmMsg = ""
 		return m, nil
 	}
@@ -48,6 +57,16 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.inputValue = ""
 				return m, m.loadItems
 			}
+		case "create_folder":
+			if m.inputValue == "" {
+				m.showInput = false
+				return m, nil
+			}
+			if err := filesystem.CreateFolder(m.currentDir, m.inputValue); err == nil {
+				m.showInput = false
+				m.inputValue = ""
+				return m, m.loadItems
+			}
 		case "rename":
 			if m.inputValue == "" {
 				m.showInput = false
@@ -55,6 +74,18 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			if m.cursor < len(m.items) && m.items[m.cursor].Note != nil {
 				if err := filesystem.RenameNote(m.items[m.cursor].Note, m.inputValue); err == nil {
+					m.showInput = false
+					m.inputValue = ""
+					return m, m.loadItems
+				}
+			}
+		case "rename_folder":
+			if m.inputValue == "" {
+				m.showInput = false
+				return m, nil
+			}
+			if m.cursor < len(m.items) && m.items[m.cursor].IsFolder {
+				if err := filesystem.RenameFolder(m.items[m.cursor].Path, m.inputValue); err == nil {
 					m.showInput = false
 					m.inputValue = ""
 					return m, m.loadItems

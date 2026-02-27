@@ -247,6 +247,13 @@ func (m *Model) followLinkAtCursor() tea.Cmd {
 		return m.openNoteByLink(url)
 	}
 
+	// 4. Bare URLs (http:// or https://) at cursor position
+	if url := m.bareURLAtCursor(); url != "" {
+		openBrowser(url)
+		m.statusMsg = "Opened in browser"
+		return nil
+	}
+
 	return nil
 }
 
@@ -382,14 +389,59 @@ func (m *Model) openLinkInSplit(mode string) bool {
 	return false
 }
 
-// findNoteByLink searches for a note matching the given target (ID or path).
+// bareURLAtCursor returns a bare URL (http:// or https://) if the cursor is within one.
+func (m *Model) bareURLAtCursor() string {
+	if m.lineCursor >= len(m.contentLines) {
+		return ""
+	}
+	line := m.contentLines[m.lineCursor]
+
+	for _, prefix := range []string{"https://", "http://"} {
+		idx := 0
+		for {
+			pos := strings.Index(line[idx:], prefix)
+			if pos < 0 {
+				break
+			}
+			start := idx + pos
+			// Find end of URL (whitespace or end of line)
+			end := start
+			for end < len(line) && line[end] != ' ' && line[end] != '\t' && line[end] != ')' && line[end] != '>' && line[end] != ']' {
+				end++
+			}
+			if m.colCursor >= start && m.colCursor < end {
+				return line[start:end]
+			}
+			idx = end
+		}
+	}
+	return ""
+}
+
+// findNoteByLink searches for a note matching the given target (ID, path, or relative path).
 func (m *Model) findNoteByLink(target string) *domain.Note {
+	// Try resolving as a relative path from the current note's directory first
+	if m.fullNote != nil {
+		noteDir := filepath.Dir(m.fullNote.Path)
+		candidate := filepath.Join(noteDir, target)
+		candidate = filepath.Clean(candidate)
+		// Add .md extension if not present
+		if !strings.HasSuffix(candidate, ".md") {
+			candidate += ".md"
+		}
+		if note, err := filesystem.ReadNote(candidate); err == nil {
+			return note
+		}
+	}
+
+	// Try matching by ID or path in current items
 	for _, item := range m.items {
 		if item.Note != nil && (item.Note.ID == target || strings.Contains(item.Note.Path, target)) {
 			return item.Note
 		}
 	}
 
+	// Walk the entire notes directory
 	var found *domain.Note
 	filepath.Walk(m.rootDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".md") {
@@ -438,8 +490,49 @@ func (m *Model) openNoteByLink(target string) tea.Cmd {
 	note := m.findNoteByLink(target)
 	if note != nil {
 		m.openNote(note)
+	} else {
+		m.statusMsg = "Note not found: " + target
 	}
 	return nil
+}
+
+// insertLinkToNote inserts a markdown link to the target note at the current cursor position.
+func (m *Model) insertLinkToNote(target *domain.Note) {
+	if m.fullNote == nil || target == nil {
+		return
+	}
+
+	// Compute relative path from current note to target
+	noteDir := filepath.Dir(m.fullNote.Path)
+	relPath, err := filepath.Rel(noteDir, target.Path)
+	if err != nil {
+		relPath = target.Path
+	}
+
+	link := "[" + target.Title + "](" + relPath + ")"
+
+	// Insert at current cursor position
+	if m.lineCursor < len(m.contentLines) {
+		line := m.contentLines[m.lineCursor]
+		col := m.colCursor
+		if col > len(line) {
+			col = len(line)
+		}
+		m.contentLines[m.lineCursor] = line[:col] + link + line[col:]
+	} else {
+		m.contentLines = append(m.contentLines, link)
+		m.lineCursor = len(m.contentLines) - 1
+	}
+
+	// Update cursor past the inserted link
+	m.colCursor += len(link)
+	m.desiredCol = m.colCursor
+
+	// Save to disk
+	m.fullNote.Content = strings.Join(m.contentLines, "\n")
+	filesystem.WriteNote(m.fullNote)
+
+	m.statusMsg = "Link inserted"
 }
 
 // openNote sets up the model to view a note with rendered markdown.
