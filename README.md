@@ -24,6 +24,10 @@ go build -o lumi
 ./lumi /path/to/notes
 ```
 
+## Documentation
+
+Full docs at [vinizap4.github.io/lumi-site/#/docs](https://vinizap4.github.io/lumi-site/#/docs).
+
 ## Part of lumi
 
 This is a component of the [lumi monorepo](https://github.com/ViniZap4/lumi).
