@@ -26,7 +26,7 @@ go build -o lumi
 
 ## Documentation
 
-Full docs at [vinizap4.github.io/lumi-site/#/docs](https://vinizap4.github.io/lumi-site/#/docs).
+Full docs at [lumi-note.vercel.app/#/docs](https://lumi-note.vercel.app/#/docs).
 
 ## Part of lumi
 
