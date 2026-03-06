@@ -4,6 +4,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/vinizap/lumi/tui-client/ui"
@@ -28,6 +29,11 @@ func main() {
 	if info, err := os.Stat(rootDir); err != nil || !info.IsDir() {
 		fmt.Fprintf(os.Stderr, "Error: '%s' is not a valid directory\n", rootDir)
 		os.Exit(1)
+	}
+
+	// Resolve to absolute path so image/link resolution works regardless of CWD
+	if abs, err := filepath.Abs(rootDir); err == nil {
+		rootDir = abs
 	}
 
 	p := tea.NewProgram(

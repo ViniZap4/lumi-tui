@@ -11,6 +11,11 @@ import (
 	"github.com/vinizap/lumi/tui-client/theme"
 )
 
+// imageLinePrefix marks display lines that contain pre-rendered image output
+// (ANSI art from external tools or native protocol escape sequences).
+// These lines must bypass the content styling pipeline entirely.
+const imageLinePrefix = "\x00IMG\x00"
+
 // visualRange describes which columns of a line fall inside the visual selection.
 type visualRange struct {
 	active   bool
@@ -71,7 +76,9 @@ func (m Model) renderFullNote() string {
 			if imgPath != "" {
 				if _, err := os.Stat(imgPath); err == nil {
 					rendered := image.Render(imgPath, m.width-6)
-					displayLines = append(displayLines, strings.Split(rendered, "\n")...)
+					for _, rl := range strings.Split(rendered, "\n") {
+						displayLines = append(displayLines, imageLinePrefix+rl)
+					}
 					continue
 				}
 			}
@@ -118,6 +125,14 @@ func (m Model) renderFullNote() string {
 		line := ""
 		if i < len(displayLines) {
 			line = displayLines[i]
+		}
+
+		// Image lines contain pre-rendered ANSI art or native protocol sequences
+		// that must bypass all lipgloss styling to avoid corruption.
+		if strings.HasPrefix(line, imageLinePrefix) {
+			s.WriteString("  " + strings.TrimPrefix(line, imageLinePrefix))
+			s.WriteString("\n")
+			continue
 		}
 
 		rawIdx := displayToRaw(i)

@@ -17,15 +17,33 @@ var imageRegex = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
 var (
 	rendererOnce sync.Once
 	rendererName string // "kitty", "iterm2", "timg", "chafa", "viu", ""
+	insideTmux   bool
 )
 
 func detectRenderer() {
 	rendererOnce.Do(func() {
-		// Check terminal protocol support
+		// Detect if inside tmux
+		insideTmux = os.Getenv("TMUX") != ""
+
+		// External CLI tools produce ANSI text (half-block/braille characters) which
+		// works reliably inside Bubbletea's full-screen renderer and tmux.
+		// Prefer these over native protocols which conflict with alt-screen redraws.
+		for _, tool := range []string{"timg", "chafa", "viu"} {
+			if _, err := exec.LookPath(tool); err == nil {
+				rendererName = tool
+				return
+			}
+		}
+
+		// Fall back to native terminal image protocols.
+		// These work but may flicker on screen redraws in full-screen TUIs.
 		term := os.Getenv("TERM")
 		termProgram := os.Getenv("TERM_PROGRAM")
 		kittyWindowID := os.Getenv("KITTY_WINDOW_ID")
+		lcTerminal := os.Getenv("LC_TERMINAL")       // Persists inside tmux (set by iTerm2)
+		weztermExe := os.Getenv("WEZTERM_EXECUTABLE") // Persists inside tmux (set by WezTerm)
 
+		// Direct detection (works outside tmux, sometimes inside)
 		if kittyWindowID != "" || strings.Contains(term, "kitty") {
 			rendererName = "kitty"
 			return
@@ -35,14 +53,68 @@ func detectRenderer() {
 			return
 		}
 
-		// Fall back to external tools
-		for _, tool := range []string{"timg", "chafa", "viu"} {
-			if _, err := exec.LookPath(tool); err == nil {
-				rendererName = tool
+		// Detection via env vars that persist inside tmux
+		if lcTerminal == "iTerm2" {
+			rendererName = "iterm2"
+			return
+		}
+		if weztermExe != "" {
+			rendererName = "iterm2" // WezTerm supports iTerm2 inline image protocol
+			return
+		}
+
+		// If inside tmux, query the outer terminal
+		if insideTmux {
+			if name := detectFromTmux(); name != "" {
+				rendererName = name
 				return
 			}
 		}
 	})
+}
+
+// detectFromTmux queries tmux for the outer terminal identity.
+func detectFromTmux() string {
+	// Check the client terminal name (e.g. "xterm-kitty")
+	if out, err := exec.Command("tmux", "display-message", "-p", "#{client_termname}").Output(); err == nil {
+		termname := strings.ToLower(strings.TrimSpace(string(out)))
+		if strings.Contains(termname, "kitty") {
+			return "kitty"
+		}
+	}
+
+	// Check tmux server's captured environment for TERM_PROGRAM
+	if out, err := exec.Command("tmux", "show-environment", "-g", "TERM_PROGRAM").Output(); err == nil {
+		line := strings.TrimSpace(string(out))
+		if val, ok := strings.CutPrefix(line, "TERM_PROGRAM="); ok {
+			switch val {
+			case "iTerm.app":
+				return "iterm2"
+			case "WezTerm":
+				return "iterm2"
+			}
+		}
+	}
+
+	// Check tmux server's captured LC_TERMINAL
+	if out, err := exec.Command("tmux", "show-environment", "-g", "LC_TERMINAL").Output(); err == nil {
+		line := strings.TrimSpace(string(out))
+		if val, ok := strings.CutPrefix(line, "LC_TERMINAL="); ok {
+			if val == "iTerm2" {
+				return "iterm2"
+			}
+		}
+	}
+
+	return ""
+}
+
+// wrapTmuxPassthrough wraps an escape sequence for tmux DCS passthrough.
+// All ESC (\033) bytes inside the sequence are doubled so tmux forwards them
+// to the outer terminal. Requires tmux 3.3a+ with `set -g allow-passthrough on`.
+func wrapTmuxPassthrough(seq string) string {
+	escaped := strings.ReplaceAll(seq, "\033", "\033\033")
+	return "\033Ptmux;" + escaped + "\033\\"
 }
 
 func HasImage(line string) bool {
@@ -62,8 +134,16 @@ func GetImagePath(line, notePath string) string {
 	if imgPath == "" {
 		return ""
 	}
+	// Skip URL-style paths (http/https) — only resolve local files
+	if strings.HasPrefix(imgPath, "http://") || strings.HasPrefix(imgPath, "https://") {
+		return ""
+	}
 	if !filepath.IsAbs(imgPath) {
 		imgPath = filepath.Join(filepath.Dir(notePath), imgPath)
+	}
+	// Resolve to absolute to avoid CWD-dependent failures
+	if abs, err := filepath.Abs(imgPath); err == nil {
+		imgPath = abs
 	}
 	return imgPath
 }
@@ -100,7 +180,12 @@ func Render(imagePath string, width int) string {
 			return strings.TrimSpace(string(out))
 		}
 	case "chafa":
-		if out, err := exec.Command("chafa", "-s", fmt.Sprintf("%dx%d", width, height), "--animate=off", imagePath).Output(); err == nil {
+		args := []string{"-s", fmt.Sprintf("%dx%d", width, height), "--animate=off"}
+		if insideTmux {
+			args = append(args, "--passthrough=tmux")
+		}
+		args = append(args, imagePath)
+		if out, err := exec.Command("chafa", args...).Output(); err == nil {
 			return strings.TrimSpace(string(out))
 		}
 	case "viu":
@@ -113,6 +198,7 @@ func Render(imagePath string, width int) string {
 }
 
 // renderKittyProtocol uses the Kitty graphics protocol to display images inline.
+// When inside tmux, each chunk is wrapped in DCS passthrough.
 func renderKittyProtocol(imagePath string) string {
 	data, err := os.ReadFile(imagePath)
 	if err != nil {
@@ -134,11 +220,18 @@ func renderKittyProtocol(imagePath string) string {
 		}
 		chunk := encoded[i:end]
 
+		var seq string
 		if i == 0 {
 			// First chunk: include format and action
-			sb.WriteString(fmt.Sprintf("\033_Ga=T,f=100,m=%d;%s\033\\", more, chunk))
+			seq = fmt.Sprintf("\033_Ga=T,f=100,m=%d;%s\033\\", more, chunk)
 		} else {
-			sb.WriteString(fmt.Sprintf("\033_Gm=%d;%s\033\\", more, chunk))
+			seq = fmt.Sprintf("\033_Gm=%d;%s\033\\", more, chunk)
+		}
+
+		if insideTmux {
+			sb.WriteString(wrapTmuxPassthrough(seq))
+		} else {
+			sb.WriteString(seq)
 		}
 	}
 
@@ -146,6 +239,8 @@ func renderKittyProtocol(imagePath string) string {
 }
 
 // renderITerm2Protocol uses the iTerm2 inline image protocol.
+// When inside tmux, the sequence is wrapped in DCS passthrough.
+// Uses ST (\033\\) terminator instead of BEL (\a) for tmux compatibility.
 func renderITerm2Protocol(imagePath string) string {
 	data, err := os.ReadFile(imagePath)
 	if err != nil {
@@ -155,6 +250,12 @@ func renderITerm2Protocol(imagePath string) string {
 	encoded := base64.StdEncoding.EncodeToString(data)
 	name := base64.StdEncoding.EncodeToString([]byte(filepath.Base(imagePath)))
 
-	return fmt.Sprintf("\033]1337;File=name=%s;inline=1;preserveAspectRatio=1:%s\a",
+	// Use ST (\033\\) instead of BEL (\a) — BEL is not reliably forwarded through tmux
+	seq := fmt.Sprintf("\033]1337;File=name=%s;inline=1;preserveAspectRatio=1:%s\033\\",
 		name, encoded)
+
+	if insideTmux {
+		return wrapTmuxPassthrough(seq)
+	}
+	return seq
 }
