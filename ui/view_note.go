@@ -72,6 +72,43 @@ func (m Model) renderFullNote() string {
 	for i, line := range rawLines {
 		rawToDisplay[i] = len(displayLines)
 		if image.HasImage(line) {
+			src := image.ExtractImagePath(line)
+
+			// Embed URLs (YouTube, Vimeo)
+			if image.IsEmbed(src) {
+				displayLines = append(displayLines, lipgloss.NewStyle().
+					Foreground(theme.Current.Accent).
+					Render(fmt.Sprintf("[Embed: %s]", src)))
+				continue
+			}
+
+			// Video files (by extension)
+			if image.IsVideo(src) {
+				videoPath := image.GetImagePath(line, m.fullNote.Path)
+				if videoPath != "" {
+					if _, err := os.Stat(videoPath); err == nil {
+						rendered := image.RenderVideo(videoPath, m.width-6)
+						for _, rl := range strings.Split(rendered, "\n") {
+							displayLines = append(displayLines, imageLinePrefix+rl)
+						}
+						continue
+					}
+				}
+				displayLines = append(displayLines, lipgloss.NewStyle().
+					Foreground(theme.Current.Accent).
+					Render(fmt.Sprintf("[Video: %s]", filepath.Base(src))))
+				continue
+			}
+
+			// PDF files
+			if image.IsPdf(src) {
+				displayLines = append(displayLines, lipgloss.NewStyle().
+					Foreground(theme.Current.Accent).
+					Render(fmt.Sprintf("[PDF: %s]", filepath.Base(src))))
+				continue
+			}
+
+			// Image rendering
 			imgPath := image.GetImagePath(line, m.fullNote.Path)
 			if imgPath != "" {
 				if _, err := os.Stat(imgPath); err == nil {
@@ -84,7 +121,7 @@ func (m Model) renderFullNote() string {
 			}
 			displayLines = append(displayLines, lipgloss.NewStyle().
 				Foreground(theme.Current.Error).
-				Render(fmt.Sprintf("[Image not found: %s]", filepath.Base(image.ExtractImagePath(line)))))
+				Render(fmt.Sprintf("[Image not found: %s]", filepath.Base(src))))
 		} else {
 			displayLines = append(displayLines, line)
 		}

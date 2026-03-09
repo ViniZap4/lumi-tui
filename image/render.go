@@ -117,6 +117,28 @@ func wrapTmuxPassthrough(seq string) string {
 	return "\033Ptmux;" + escaped + "\033\\"
 }
 
+var videoExtensions = map[string]bool{
+	".mp4": true, ".webm": true, ".mov": true, ".avi": true,
+	".mkv": true, ".ogg": true, ".ogv": true,
+}
+
+// IsVideo returns true if the path has a video file extension.
+func IsVideo(path string) bool {
+	return videoExtensions[strings.ToLower(filepath.Ext(path))]
+}
+
+// IsPdf returns true if the path has a .pdf extension.
+func IsPdf(path string) bool {
+	return strings.ToLower(filepath.Ext(path)) == ".pdf"
+}
+
+// IsEmbed returns true if the URL is an embeddable service (YouTube, Vimeo).
+func IsEmbed(src string) bool {
+	return strings.Contains(src, "youtube.com/") ||
+		strings.Contains(src, "youtu.be/") ||
+		strings.Contains(src, "vimeo.com/")
+}
+
 func HasImage(line string) bool {
 	return imageRegex.MatchString(line)
 }
@@ -158,14 +180,18 @@ func Render(imagePath string, width int) string {
 	if width < 10 {
 		width = 10
 	}
-
-	// Cap height to keep images from dominating the view
-	height := width / 3
-	if height < 8 {
-		height = 8
+	if width > 80 {
+		width = 80
 	}
-	if height > 30 {
-		height = 30
+
+	// Height: roughly 1/4 of width, accounting for terminal cell aspect ratio.
+	// Terminal cells are ~2:1 (width:height), so width/4 gives a balanced image.
+	height := width / 4
+	if height < 6 {
+		height = 6
+	}
+	if height > 20 {
+		height = 20
 	}
 
 	detectRenderer()
@@ -195,6 +221,38 @@ func Render(imagePath string, width int) string {
 	}
 
 	return fmt.Sprintf("[Image: %s] (install timg, chafa, or viu for preview)", filepath.Base(imagePath))
+}
+
+// RenderVideo extracts the first frame of a video using ffmpeg and renders it
+// as an image. Returns a styled placeholder if ffmpeg is unavailable.
+func RenderVideo(videoPath string, width int) string {
+	if _, err := os.Stat(videoPath); err != nil {
+		return fmt.Sprintf("[Video not found: %s]", filepath.Base(videoPath))
+	}
+
+	// Use ffmpeg to extract first frame as a temporary PNG
+	if _, err := exec.LookPath("ffmpeg"); err == nil {
+		tmpFile, err := os.CreateTemp("", "lumi-thumb-*.png")
+		if err == nil {
+			tmpPath := tmpFile.Name()
+			tmpFile.Close()
+			defer os.Remove(tmpPath)
+
+			cmd := exec.Command("ffmpeg", "-y", "-loglevel", "error",
+				"-i", videoPath, "-vframes", "1", "-q:v", "2", tmpPath)
+			if err := cmd.Run(); err == nil {
+				if info, statErr := os.Stat(tmpPath); statErr == nil && info.Size() > 0 {
+					rendered := Render(tmpPath, width)
+					if !strings.HasPrefix(rendered, "[") {
+						label := fmt.Sprintf("  ▶ %s", filepath.Base(videoPath))
+						return rendered + "\n" + label
+					}
+				}
+			}
+		}
+	}
+
+	return fmt.Sprintf("[Video: %s] (install ffmpeg for thumbnail preview)", filepath.Base(videoPath))
 }
 
 // renderKittyProtocol uses the Kitty graphics protocol to display images inline.
