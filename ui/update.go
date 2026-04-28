@@ -57,6 +57,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case itemsLoadedMsg:
 		m.items = msg.items
+		// One-shot auto-open: if the user passed `lumi some/note.md`
+		// at the command line, find the matching item and jump into
+		// its Note view. Falls back to a direct disk read if for some
+		// reason the file didn't make it into the listing.
+		if m.initialNotePath != "" {
+			target := m.initialNotePath
+			m.initialNotePath = ""
+			for i, it := range m.items {
+				if it.IsFolder || it.Note == nil {
+					continue
+				}
+				if it.Path == target {
+					m.cursor = i
+					m.openNote(it.Note)
+					return m, nil
+				}
+			}
+			// Listing didn't include the target (e.g. the file lives
+			// outside m.currentDir). Read it directly.
+			if note, err := filesystem.ReadNote(target); err == nil && note != nil {
+				m.openNote(note)
+			}
+		}
 		return m, nil
 
 	case navItemsLoadedMsg:

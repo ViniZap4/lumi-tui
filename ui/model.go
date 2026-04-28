@@ -148,6 +148,12 @@ type Model struct {
 	configItems  []ConfigItem
 	configCfg    *config.Config
 	previousView ViewMode
+
+	// initialNotePath holds an absolute path the user passed at the
+	// command line (`lumi some/note.md`). When set, the first
+	// itemsLoadedMsg handler auto-opens the matching note and clears
+	// the field. Empty string means "no auto-open".
+	initialNotePath string
 }
 
 // NewModel creates and returns a new Model.
@@ -182,4 +188,23 @@ func NewModel(rootDir string) Model {
 // NewSimpleModel is an alias for backward compatibility with main.go.
 func NewSimpleModel(rootDir string) Model {
 	return NewModel(rootDir)
+}
+
+// NewModelWithInitialNote builds a Model and configures it to auto-open
+// `notePath` (an absolute path) once the initial item listing completes.
+// When notePath is "", the splash + tree flow runs as normal.
+//
+// The Note view is targeted directly (skipping the home animation) so
+// `lumi note.md` feels like opening a file rather than entering an app.
+func NewModelWithInitialNote(rootDir, notePath string) Model {
+	m := NewModel(rootDir)
+	if notePath == "" {
+		return m
+	}
+	m.initialNotePath = notePath
+	// Skip the home animation: when the user passes a file we want them
+	// in the editor, not on the splash.
+	m.viewMode = ViewTree
+	m.animDone = true
+	return m
 }
