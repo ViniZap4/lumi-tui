@@ -190,21 +190,22 @@ func NewSimpleModel(rootDir string) Model {
 	return NewModel(rootDir)
 }
 
-// NewModelWithInitialNote builds a Model and configures it to auto-open
-// `notePath` (an absolute path) once the initial item listing completes.
-// When notePath is "", the splash + tree flow runs as normal.
+// NewModelWithInitialNote builds a Model that lands directly on the
+// file-browser view, skipping the home splash. When notePath is set
+// (an absolute file path) it also queues an auto-open of that file as
+// soon as the initial item listing arrives.
 //
-// The Note view is targeted directly (skipping the home animation) so
-// `lumi note.md` feels like opening a file rather than entering an app.
+// Use this whenever the user explicitly told lumi where to start —
+// `lumi <dir>`, `lumi <file.md>`, or via $LUMI_NOTES_DIR. The splash
+// only makes sense for `lumi` with no hint at all (see NewSimpleModel),
+// because past that point the user wants to see their notes, not an
+// animation.
 func NewModelWithInitialNote(rootDir, notePath string) Model {
 	m := NewModel(rootDir)
-	if notePath == "" {
-		return m
-	}
-	m.initialNotePath = notePath
-	// Skip the home animation: when the user passes a file we want them
-	// in the editor, not on the splash.
 	m.viewMode = ViewTree
 	m.animDone = true
+	if notePath != "" {
+		m.initialNotePath = notePath
+	}
 	return m
 }

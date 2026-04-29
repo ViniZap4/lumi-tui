@@ -29,7 +29,7 @@ note already had frontmatter or you explicitly add metadata from the UI.
 `
 
 func main() {
-	rootDir, initialNote, exitCode, ok := parseArgs(os.Args[1:])
+	rootDir, initialNote, splash, exitCode, ok := parseArgs(os.Args[1:])
 	if !ok {
 		os.Exit(exitCode)
 	}
@@ -43,7 +43,15 @@ func main() {
 		}
 	}
 
-	model := ui.NewModelWithInitialNote(rootDir, initialNote)
+	// Splash screen only when the user gave lumi no hint at all
+	// (no CLI arg AND no $LUMI_NOTES_DIR). Anything else lands on
+	// the file browser directly.
+	var model ui.Model
+	if splash && initialNote == "" {
+		model = ui.NewSimpleModel(rootDir)
+	} else {
+		model = ui.NewModelWithInitialNote(rootDir, initialNote)
+	}
 
 	p := tea.NewProgram(
 		model,
@@ -56,58 +64,63 @@ func main() {
 	}
 }
 
-// parseArgs resolves CLI arguments to (rootDir, initialNote) and an exit
-// signal. Returns ok=false when the caller should exit immediately
-// (after help/version was printed or a usage error was emitted).
+// parseArgs resolves CLI arguments to (rootDir, initialNote, splash)
+// and an exit signal. ok=false means the caller should exit
+// immediately (help/version printed, or a usage error was emitted).
 //
-//   - No args: rootDir = $LUMI_NOTES_DIR or current dir; initialNote = "".
-//   - One dir: rootDir = dir; initialNote = "".
-//   - One .md file: rootDir = parent dir; initialNote = file path.
+//   - No args, no $LUMI_NOTES_DIR: rootDir = current dir; splash = true
+//     (this is the only case that opens with the welcome animation —
+//     a brand-new user typing `lumi` from anywhere needs context).
+//   - $LUMI_NOTES_DIR set: rootDir = env var; splash = false.
+//   - One dir: rootDir = dir; splash = false.
+//   - One .md file: rootDir = parent dir; initialNote = file path; splash = false.
 //   - Help / version flag: print + exit 0.
 //   - Anything else: print error + usage to stderr; exit 64 (EX_USAGE).
-func parseArgs(args []string) (rootDir, initialNote string, exitCode int, ok bool) {
+func parseArgs(args []string) (rootDir, initialNote string, splash bool, exitCode int, ok bool) {
 	if len(args) == 0 {
-		dir := os.Getenv("LUMI_NOTES_DIR")
-		if dir == "" {
-			dir = "."
+		envDir := os.Getenv("LUMI_NOTES_DIR")
+		if envDir == "" {
+			d, n, code, dirOk := validateDir(".")
+			return d, n, true, code, dirOk
 		}
-		return validateDir(dir)
+		d, n, code, dirOk := validateDir(envDir)
+		return d, n, false, code, dirOk
 	}
 
 	switch args[0] {
 	case "--help", "-h", "help":
 		fmt.Print(usage)
-		return "", "", 0, false
+		return "", "", false, 0, false
 	case "--version", "-v", "version":
 		fmt.Printf("lumi %s\n", Version)
-		return "", "", 0, false
+		return "", "", false, 0, false
 	}
 
 	if strings.HasPrefix(args[0], "-") {
 		fmt.Fprintf(os.Stderr, "Error: unknown flag %q\n\n", args[0])
 		fmt.Fprint(os.Stderr, usage)
-		return "", "", 64, false
+		return "", "", false, 64, false
 	}
 
 	target := args[0]
 	info, err := os.Stat(target)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: cannot open %q: %v\n", target, err)
-		return "", "", 1, false
+		return "", "", false, 1, false
 	}
 	if info.IsDir() {
-		return target, "", 0, true
+		return target, "", false, 0, true
 	}
 	// Single file: must be markdown for lumi to make sense of it.
 	if !strings.HasSuffix(strings.ToLower(target), ".md") {
 		fmt.Fprintf(os.Stderr, "Error: %q is not a directory or .md file\n", target)
-		return "", "", 1, false
+		return "", "", false, 1, false
 	}
 	parent := filepath.Dir(target)
 	if parent == "" {
 		parent = "."
 	}
-	return parent, target, 0, true
+	return parent, target, false, 0, true
 }
 
 func validateDir(dir string) (string, string, int, bool) {
