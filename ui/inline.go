@@ -28,8 +28,9 @@ const (
 	clsTableHeader
 	clsTableSep
 	clsWikiLink
-	clsCheckbox
-	clsCheckboxChecked
+	clsCheckbox        // unchecked inner glyph ' '
+	clsCheckboxChecked // checked inner glyph 'x' / 'X'
+	clsCheckboxBracket // '[' or ']' framing a checkbox; rendered dim so the inner glyph reads
 )
 
 // shouldClassifyInline returns true if the line should receive inline highlighting.
@@ -154,19 +155,22 @@ func classifyInline(line string) []int {
 		}
 
 		// --- Checkboxes (- [ ] or - [x]/- [X]) after list marker ---
+		// Brackets get a distinct class so the inner glyph reads first;
+		// the toggle logic depends only on the inner cls value being
+		// either clsCheckbox or clsCheckboxChecked.
 		cbStart := ls + ml
 		if ml > 0 && cbStart+3 <= n && runes[cbStart] == '[' && runes[cbStart+2] == ']' {
-			if runes[cbStart+1] == ' ' {
-				// Unchecked: [ ]
-				for k := cbStart; k < cbStart+3 && k < n; k++ {
-					cls[k] = clsCheckbox
-					used[k] = true
-				}
-			} else if runes[cbStart+1] == 'x' || runes[cbStart+1] == 'X' {
-				// Checked: [x] or [X]
-				for k := cbStart; k < cbStart+3 && k < n; k++ {
-					cls[k] = clsCheckboxChecked
-					used[k] = true
+			inner := runes[cbStart+1]
+			if inner == ' ' || inner == 'x' || inner == 'X' {
+				cls[cbStart] = clsCheckboxBracket
+				cls[cbStart+2] = clsCheckboxBracket
+				used[cbStart] = true
+				used[cbStart+1] = true
+				used[cbStart+2] = true
+				if inner == ' ' {
+					cls[cbStart+1] = clsCheckbox
+				} else {
+					cls[cbStart+1] = clsCheckboxChecked
 				}
 			}
 		}
@@ -629,9 +633,14 @@ func resolveInlineStyle(cls int, baseStyle lipgloss.Style) lipgloss.Style {
 	case clsTableSep:
 		return lipgloss.NewStyle().Foreground(t.Muted)
 	case clsCheckbox:
+		// Empty box: render the inner space as a faint placeholder via
+		// background only — the brackets carry the shape so the user
+		// still sees the affordance.
 		return lipgloss.NewStyle().Foreground(t.Muted).Bold(true)
 	case clsCheckboxChecked:
 		return lipgloss.NewStyle().Foreground(t.Accent).Bold(true)
+	case clsCheckboxBracket:
+		return lipgloss.NewStyle().Foreground(t.TextDim)
 	default:
 		return baseStyle
 	}

@@ -174,6 +174,41 @@ func (m Model) updateNote(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Follow link / toggle checkbox
 	case "enter":
 		return m, m.followLinkAtCursor()
+
+	// Quick checkbox toggle without the link-following hierarchy.
+	// Useful when a line carries BOTH a checkbox and a link — Enter
+	// would prefer the checkbox, but Space + l/k let the user pick.
+	case " ":
+		if m.visualMode == VisualNone {
+			if m.toggleCheckbox() {
+				m.statusMsg = "Toggled"
+				return m, nil
+			}
+		}
+
+	// Hop between checkboxes on the file (vim-]/[ family).
+	case "]":
+		if m.visualMode == VisualNone {
+			if next := m.nextCheckboxLine(m.lineCursor); next >= 0 {
+				m.lineCursor = next
+				m.colCursor = 0
+				m.desiredCol = 0
+			} else {
+				m.statusMsg = "No further checkbox"
+			}
+			return m, nil
+		}
+	case "[":
+		if m.visualMode == VisualNone {
+			if prev := m.prevCheckboxLine(m.lineCursor); prev >= 0 {
+				m.lineCursor = prev
+				m.colCursor = 0
+				m.desiredCol = 0
+			} else {
+				m.statusMsg = "No previous checkbox"
+			}
+			return m, nil
+		}
 	}
 
 	return m, nil

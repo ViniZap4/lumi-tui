@@ -123,7 +123,7 @@ func (m Model) renderFullNote() string {
 				Foreground(theme.Current.Error).
 				Render(fmt.Sprintf("[Image not found: %s]", filepath.Base(src))))
 		} else {
-			displayLines = append(displayLines, line)
+			displayLines = append(displayLines, prettifyForDisplay(line))
 		}
 	}
 
@@ -247,15 +247,59 @@ func (m Model) renderFullNote() string {
 	if m.statusMsg != "" {
 		s.WriteString(StatusBarStyle.Width(m.width).Render(" " + m.statusMsg))
 	} else {
-		mode := m.modeIndicator()
-		status := fmt.Sprintf("Ln %d  Col %d%s", m.lineCursor+1, m.colCursor+1, mode)
-		s.WriteString(StatusBarStyle.Width(m.width).Render(status))
+		// Right-aligned position + mode pill; left-aligned note id so
+		// the user always knows which file they're looking at. The
+		// space between scales with terminal width.
+		noteID := ""
+		if m.fullNote != nil {
+			noteID = m.fullNote.Path
+			if noteID == "" {
+				noteID = m.fullNote.ID
+			}
+		}
+		left := lipgloss.NewStyle().Foreground(theme.Current.TextDim).Render(" " + noteID)
+		right := lipgloss.NewStyle().Foreground(theme.Current.TextDim).
+			Render(fmt.Sprintf("Ln %d  Col %d%s ", m.lineCursor+1, m.colCursor+1, m.modeIndicator()))
+		lw := lipgloss.Width(left)
+		rw := lipgloss.Width(right)
+		gap := m.width - lw - rw
+		if gap < 1 {
+			// Truncate the left side rather than the position pill on
+			// narrow windows.
+			left = lipgloss.NewStyle().Foreground(theme.Current.TextDim).
+				Render(" " + truncateForBar(noteID, max(0, m.width-rw-2)))
+			lw = lipgloss.Width(left)
+			gap = max(1, m.width-lw-rw)
+		}
+		s.WriteString(StatusBarStyle.Width(m.width).Render(left + strings.Repeat(" ", gap) + right))
 	}
 
 	return s.String()
 }
 
 // --- Helpers ---
+
+// prettifyForDisplay rewrites the raw line into a more readable form
+// for the read view. Substitutions are 1-rune for 1-rune so the column
+// math used by the cursor + visual selection still lines up — the
+// underlying contentLines stays standard markdown for file
+// persistence and copy-out.
+//
+// Today this only handles the blockquote prefix; more substitutions
+// can be added here as the visual style evolves.
+func prettifyForDisplay(line string) string {
+	// `> ` blockquote → `│ ` (U+2502 BOX DRAWINGS LIGHT VERTICAL).
+	// Both are single-cell width.
+	trimmed := strings.TrimLeft(line, " \t")
+	pad := line[:len(line)-len(trimmed)]
+	if strings.HasPrefix(trimmed, "> ") {
+		return pad + "│" + trimmed[1:]
+	}
+	if trimmed == ">" {
+		return pad + "│"
+	}
+	return line
+}
 
 // codeBlockLines returns which raw line indices are inside fenced code blocks.
 func codeBlockLines(lines []string) map[int]bool {
@@ -477,19 +521,53 @@ func (m Model) renderContentLine(line string, baseStyle lipgloss.Style, inlineCl
 		}
 	}
 
+	// Focus highlight: when the cursor is on a line that has a
+	// checkbox, render the box's inner glyph against a subtle accent
+	// background so the user sees "this row is toggleable; press
+	// Space to flip." Applied to ALL checkbox classes on that line —
+	// the brackets too, so the affordance reads as one unit.
+	focusCheckbox := false
+	if isCursorLine && hasInline {
+		for _, c := range inlineCls {
+			if c == clsCheckbox || c == clsCheckboxChecked {
+				focusCheckbox = true
+				break
+			}
+		}
+	}
+
 	var result strings.Builder
 	for _, sg := range segs {
 		st := resolveInlineStyle(sg.cls, baseStyle)
+		isCheckboxCls := sg.cls == clsCheckbox || sg.cls == clsCheckboxChecked || sg.cls == clsCheckboxBracket
 		switch sg.zone {
 		case 2:
 			result.WriteString(cursorStyle.Render(sg.text))
 		case 1:
 			result.WriteString(st.Background(selBg).Render(sg.text))
 		default:
+			if focusCheckbox && isCheckboxCls {
+				st = st.Background(theme.Current.SelectedBg)
+			}
 			result.WriteString(st.Render(sg.text))
 		}
 	}
 	return result.String()
+}
+
+// truncateForBar shortens s to at most width runes, appending an
+// ellipsis when truncated. width<=0 yields the empty string.
+func truncateForBar(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if len(s) <= width {
+		return s
+	}
+	if width <= 1 {
+		return "…"
+	}
+	return "…" + s[len(s)-width+1:]
 }
 
 // modeIndicator returns a string showing the current mode.

@@ -257,6 +257,51 @@ func (m *Model) followLinkAtCursor() tea.Cmd {
 	return nil
 }
 
+// lineHasCheckbox reports whether the raw line at idx carries a
+// markdown task-list checkbox (`- [ ]`, `- [x]`, `+ [X]`, ...).
+// Matches the same shape toggleCheckbox accepts so the navigation
+// helpers stay in lockstep with the toggle.
+func lineHasCheckbox(line string) bool {
+	trimmed := strings.TrimLeft(line, " \t")
+	rest := trimmed
+	if len(rest) >= 2 && (rest[0] == '-' || rest[0] == '+' || rest[0] == '*') && rest[1] == ' ' {
+		rest = rest[2:]
+	} else {
+		return false
+	}
+	if len(rest) < 3 || rest[0] != '[' || rest[2] != ']' {
+		return false
+	}
+	switch rest[1] {
+	case ' ', 'x', 'X':
+		return true
+	}
+	return false
+}
+
+// nextCheckboxLine returns the index of the next line at-or-after
+// `from + 1` that contains a checkbox, or -1 when none remain. Used
+// by the `]` keybinding to hop between task items.
+func (m *Model) nextCheckboxLine(from int) int {
+	for i := from + 1; i < len(m.contentLines); i++ {
+		if lineHasCheckbox(m.contentLines[i]) {
+			return i
+		}
+	}
+	return -1
+}
+
+// prevCheckboxLine returns the index of the previous line at-or-before
+// `from - 1` that contains a checkbox, or -1.
+func (m *Model) prevCheckboxLine(from int) int {
+	for i := from - 1; i >= 0; i-- {
+		if lineHasCheckbox(m.contentLines[i]) {
+			return i
+		}
+	}
+	return -1
+}
+
 // toggleCheckbox checks if the current line has a checkbox and toggles it.
 // Returns true if a checkbox was found and toggled.
 func (m *Model) toggleCheckbox() bool {
