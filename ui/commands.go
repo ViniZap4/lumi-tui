@@ -72,6 +72,12 @@ type syncErrorMsg struct {
 	err error
 }
 
+// syncDroppedMsg signals that one or more sync events were dropped
+// because the consumer fell behind. count is cumulative since start.
+type syncDroppedMsg struct {
+	count uint64
+}
+
 // --- Commands ---
 
 // showToast sets the toast state and returns a tick command for auto-dismiss.
@@ -106,10 +112,14 @@ func (m Model) waitForSyncStatus() tea.Msg {
 	if !ok {
 		return nil
 	}
-	if status.Connected {
+	switch status.Kind {
+	case sync.StatusConnected:
 		return syncConnectedMsg{}
+	case sync.StatusDropped:
+		return syncDroppedMsg{count: status.LostEvents}
+	default:
+		return syncErrorMsg{err: status.Err}
 	}
-	return syncErrorMsg{err: status.Err}
 }
 
 func (m Model) loadItems() tea.Msg {

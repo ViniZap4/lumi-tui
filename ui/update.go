@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -113,6 +114,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		toastText := classifySyncError(msg.err)
 		cmd := m.showToast(toastText, ToastError, 4*time.Second)
 		return m, tea.Batch(cmd, m.waitForSyncStatus)
+
+	case syncDroppedMsg:
+		// Some sync events were dropped — prompt the user to refresh so
+		// the on-screen list isn't silently stale. We also do an
+		// implicit reload here because users rarely act on warnings.
+		toast := fmt.Sprintf("Sync: %d event(s) lost — refreshing", msg.count)
+		cmd := m.showToast(toast, ToastError, 4*time.Second)
+		return m, tea.Batch(cmd, m.loadItems, m.waitForSyncStatus)
 
 	case syncEventMsg:
 		// A note was changed on the server — reload items.
