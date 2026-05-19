@@ -474,18 +474,35 @@ func (m *Model) bareURLAtCursor() string {
 }
 
 // findNoteByLink searches for a note matching the given target (ID, path, or relative path).
+//
+// Security: the `target` is attacker-influenced — it comes from a
+// wikilink `[[...]]` or a markdown link inside a note. A malicious
+// note containing `[[../../../etc/passwd]]` (or planting a symlink
+// `notes/poison.md → /etc/secret.md`) must not cause the TUI to
+// render content outside the vault. We gate the relative-path branch
+// on filepath.IsLocal (lexical: rejects "..", absolute paths,
+// Windows-reserved names) AND on pathIsInsideVault (resolves
+// symlinks before comparing). The items match and the rootDir-bounded
+// walk are inherently safe because they only inspect paths the TUI
+// itself listed.
 func (m *Model) findNoteByLink(target string) *domain.Note {
-	// Try resolving as a relative path from the current note's directory first
-	if m.fullNote != nil {
+	// Try resolving as a relative path from the current note's directory.
+	// `filepath.IsLocal` rejects absolute paths and any string that
+	// lexically escapes its starting directory with `..`. We additionally
+	// require the joined+resolved candidate to live inside the vault root
+	// — covering the case where a symlink inside the vault tries to
+	// pivot out.
+	if m.fullNote != nil && filepath.IsLocal(target) {
 		noteDir := filepath.Dir(m.fullNote.Path)
 		candidate := filepath.Join(noteDir, target)
-		candidate = filepath.Clean(candidate)
 		// Add .md extension if not present
 		if !strings.HasSuffix(candidate, ".md") {
 			candidate += ".md"
 		}
-		if note, err := filesystem.ReadNote(candidate); err == nil {
-			return note
+		if pathIsInsideVault(m.rootDir, candidate) {
+			if note, err := filesystem.ReadNote(candidate); err == nil {
+				return note
+			}
 		}
 	}
 
@@ -513,6 +530,51 @@ func (m *Model) findNoteByLink(target string) *domain.Note {
 		return nil
 	})
 	return found
+}
+
+// pathIsInsideVault reports whether candidate (which may not yet
+// exist) resolves to a location inside rootDir. Combines a lexical
+// check with a symlink-resolution check so a symlink planted inside
+// the vault cannot redirect findNoteByLink at an external file.
+//
+// The function returns true for non-existent candidates whose lexical
+// path stays under rootDir — callers handle the read error normally.
+// Both rootDir and the candidate are resolved via EvalSymlinks so a
+// vault root mounted via a symlink (e.g. ~/notes → /mnt/data/notes)
+// produces a consistent comparison.
+func pathIsInsideVault(rootDir, candidate string) bool {
+	absRoot, err := filepath.Abs(rootDir)
+	if err != nil {
+		return false
+	}
+	absCand, err := filepath.Abs(candidate)
+	if err != nil {
+		return false
+	}
+
+	resolvedRoot, err := filepath.EvalSymlinks(absRoot)
+	if err != nil {
+		return false // root must exist for any wikilink to resolve
+	}
+
+	// If the candidate exists, resolve its symlinks so we compare
+	// the final destination rather than the link path itself. If it
+	// doesn't exist (the wikilink target may not be created yet), we
+	// resolve the parent directory instead and stitch the basename
+	// back on — without that step, a vault root that itself crosses
+	// a symlink (e.g. macOS `/var/folders/...` → `/private/var/...`)
+	// produces a false escape verdict for paths that don't exist yet.
+	if resolved, err := filepath.EvalSymlinks(absCand); err == nil {
+		absCand = resolved
+	} else if resolvedParent, err := filepath.EvalSymlinks(filepath.Dir(absCand)); err == nil {
+		absCand = filepath.Join(resolvedParent, filepath.Base(absCand))
+	}
+
+	rel, err := filepath.Rel(resolvedRoot, absCand)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // openExternalLink opens the URL under the cursor in the system browser.
