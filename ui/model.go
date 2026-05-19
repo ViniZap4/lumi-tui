@@ -120,6 +120,11 @@ type Model struct {
 	searchType    string
 	searchResults []Item
 	inFileSearch  bool
+	// searchGen is bumped on every dispatchSearch call so stale
+	// results from earlier rapid keystrokes are discarded in Update.
+	// Without this guard, a slow walk for query "lum" could overwrite
+	// the fresh results for query "lumi" if it returned later.
+	searchGen int
 
 	// Input modal
 	inputMode  string

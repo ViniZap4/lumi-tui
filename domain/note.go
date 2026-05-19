@@ -19,6 +19,16 @@ type Note struct {
 	// notes the user authored elsewhere). yaml:"-" so the flag itself
 	// never round-trips into a frontmatter value.
 	HadFrontmatter bool `yaml:"-"`
+
+	// RawFrontmatter holds the original YAML bytes when the file's
+	// frontmatter couldn't be parsed structurally. Set by ReadNote on
+	// parse failure; honoured by WriteNote, which emits these bytes
+	// verbatim instead of re-marshalling — that way a corrupted
+	// frontmatter block (custom fields, malformed YAML, comments)
+	// survives a round-trip through lumi instead of being silently
+	// dropped on the next save. Empty when the frontmatter parsed
+	// cleanly.
+	RawFrontmatter []byte `yaml:"-"`
 }
 
 type Folder struct {

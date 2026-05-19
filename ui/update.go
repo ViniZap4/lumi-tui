@@ -88,6 +88,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case searchResultsMsg:
+		// Drop stale results: a slow walk for an earlier query must not
+		// overwrite the fresh result for the current one. dispatchSearch
+		// bumps searchGen on every keystroke; results carry the gen
+		// they were dispatched at.
+		if msg.gen != m.searchGen {
+			return m, nil
+		}
 		m.searchResults = msg.results
 		m.cursor = 0
 		return m, nil

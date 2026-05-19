@@ -37,7 +37,7 @@ func LoadFolderConfig(rootDir string) *FolderConfig {
 		}
 
 		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
+		value := unquoteValue(parts[1])
 
 		switch key {
 		case "server_url":

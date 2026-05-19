@@ -54,11 +54,16 @@ func ReadNote(path string) (*domain.Note, error) {
 	}
 
 	// Try to parse the frontmatter. If it fails, fall back to plain
-	// metadata rather than rejecting the note.
+	// metadata so the note still appears in lists — but stash the
+	// original YAML bytes on the note so WriteNote can re-emit them
+	// verbatim. Previously a parse failure silently destroyed the
+	// frontmatter on the next save; the user lost tags, custom
+	// fields, and timestamps the moment they edited body text.
 	if err := yaml.Unmarshal(yamlBytes, note); err != nil {
-		// Re-mark as plain so the writer doesn't preserve the broken
-		// frontmatter on save.
-		fillAutoMetadata(note, path, data)
+		fillAutoMetadata(note, path, body)
+		note.HadFrontmatter = true
+		note.RawFrontmatter = append([]byte(nil), bytes.TrimRight(yamlBytes, "\n")...)
+		note.Content = string(bytes.TrimSpace(body))
 		// Return the note plus a soft error so callers (e.g. a future
 		// "show warnings" mode) can surface the parse problem. The
 		// caller's contract: a non-nil note + non-nil error means
@@ -219,23 +224,35 @@ func fillAutoMetadata(note *domain.Note, path string, data []byte) {
 func WriteNote(note *domain.Note) error {
 	var payload []byte
 	if note.HadFrontmatter {
+		// Two paths into the FM branch:
+		//   1. Parsed cleanly on read → re-marshal from struct fields
+		//      so any UI edits to Title/Tags/etc. round-trip.
+		//   2. Parse failed on read → emit RawFrontmatter verbatim so
+		//      custom fields / malformed YAML / comments survive.
+		var fmBytes []byte
+		if len(note.RawFrontmatter) > 0 {
+			fmBytes = note.RawFrontmatter
+		} else {
+			var fmBuf bytes.Buffer
+			enc := yaml.NewEncoder(&fmBuf)
+			enc.SetIndent(2)
+			if err := enc.Encode(note); err != nil {
+				_ = enc.Close()
+				return fmt.Errorf("encode frontmatter: %w", err)
+			}
+			if err := enc.Close(); err != nil {
+				return fmt.Errorf("close encoder: %w", err)
+			}
+			fmBytes = bytes.TrimRight(fmBuf.Bytes(), "\n")
+		}
+
 		var buf bytes.Buffer
 		buf.WriteString("---\n")
-		enc := yaml.NewEncoder(&buf)
-		enc.SetIndent(2)
-		if err := enc.Encode(note); err != nil {
-			_ = enc.Close()
-			return fmt.Errorf("encode frontmatter: %w", err)
+		buf.Write(fmBytes)
+		if !bytes.HasSuffix(fmBytes, []byte{'\n'}) {
+			buf.WriteByte('\n')
 		}
-		if err := enc.Close(); err != nil {
-			return fmt.Errorf("close encoder: %w", err)
-		}
-		// yaml encoder ends with a newline; ensure exactly one between
-		// the YAML body and the close fence.
-		body := bytes.TrimRight(buf.Bytes(), "\n")
-		buf.Reset()
-		buf.Write(body)
-		buf.WriteString("\n---\n\n")
+		buf.WriteString("---\n\n")
 		buf.WriteString(note.Content)
 		payload = buf.Bytes()
 	} else {

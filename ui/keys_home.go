@@ -31,7 +31,7 @@ func (m Model) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.searchQuery = ""
 		m.searchType = "filename"
 		m.inFileSearch = false
-		return m, func() tea.Msg { return m.performSearch() }
+		return m, m.dispatchSearch()
 	case "c":
 		m.enterConfig()
 		return m, nil
@@ -56,7 +56,7 @@ func (m Model) updateHomeSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.searchType = "filename"
 		}
-		return m, func() tea.Msg { return m.performSearch() }
+		return m, m.dispatchSearch()
 	case "down":
 		if m.cursor < len(m.searchResults)-1 {
 			m.cursor++
@@ -77,13 +77,13 @@ func (m Model) updateHomeSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "backspace":
 		if len(m.searchQuery) > 0 {
 			m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
-			return m, func() tea.Msg { return m.performSearch() }
+			return m, m.dispatchSearch()
 		}
 		return m, nil
 	default:
 		if len(msg.String()) == 1 && msg.String() >= " " && msg.String() <= "~" {
 			m.searchQuery += msg.String()
-			return m, func() tea.Msg { return m.performSearch() }
+			return m, m.dispatchSearch()
 		}
 	}
 

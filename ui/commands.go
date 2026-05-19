@@ -47,6 +47,7 @@ type navItemsLoadedMsg struct {
 
 type searchResultsMsg struct {
 	results []Item
+	gen     int // generation stamp; Update drops results whose gen != m.searchGen
 }
 
 // syncEventMsg wraps a sync event from the WebSocket connection.
@@ -172,6 +173,17 @@ func (m Model) loadNavItems() tea.Msg {
 	return navItemsLoadedMsg{items}
 }
 
+// dispatchSearch bumps the search generation counter and returns a Cmd
+// that walks the vault asynchronously. The captured generation is
+// stamped on the result message; Update drops messages whose gen no
+// longer matches m.searchGen — that's how a slow walk for an earlier
+// query gets discarded once the user types another character.
+func (m *Model) dispatchSearch() tea.Cmd {
+	m.searchGen++
+	snap := *m
+	return func() tea.Msg { return snap.performSearch() }
+}
+
 func (m Model) performSearch() tea.Msg {
 	var results []Item
 
@@ -216,7 +228,7 @@ func (m Model) performSearch() tea.Msg {
 		return nil
 	})
 
-	return searchResultsMsg{results}
+	return searchResultsMsg{results: results, gen: m.searchGen}
 }
 
 func (m *Model) followLinkAtCursor() tea.Cmd {
