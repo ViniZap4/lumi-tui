@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -227,6 +228,12 @@ func (m Model) performSearch() tea.Msg {
 		}
 		return nil
 	})
+
+	// Sort by relative path so the same query always returns the same
+	// order. filepath.Walk's "lexical order per directory" still leaves
+	// cross-tree order surprising to users (a/b.md beats a-z/c.md), and
+	// reordering on every keystroke makes the result list feel unstable.
+	sort.Slice(results, func(i, j int) bool { return results[i].Name < results[j].Name })
 
 	return searchResultsMsg{results: results, gen: m.searchGen}
 }

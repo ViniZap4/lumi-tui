@@ -37,7 +37,16 @@ func Load() *Config {
 		SearchType:      "filename",
 	}
 
-	configPath := filepath.Join(os.Getenv("HOME"), ".config", "lumi", "config.yaml")
+	// UserHomeDir falls back to $HOME on Unix and the registry on
+	// Windows. Older code used os.Getenv("HOME") directly, which
+	// silently produced paths like "/.config/lumi/..." when the env
+	// was unset — a clearer failure mode is to skip loading and
+	// return the defaults.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return cfg
+	}
+	configPath := filepath.Join(home, ".config", "lumi", "config.yaml")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return cfg
@@ -101,7 +110,11 @@ func Load() *Config {
 
 // Save writes the config back to ~/.config/lumi/config.yaml.
 func (c *Config) Save() error {
-	configDir := filepath.Join(os.Getenv("HOME"), ".config", "lumi")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("locate home dir: %w", err)
+	}
+	configDir := filepath.Join(home, ".config", "lumi")
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		return err
 	}

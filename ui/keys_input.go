@@ -1,9 +1,21 @@
 package ui
 
 import (
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/vinizap/lumi/tui-client/filesystem"
 )
+
+// cancelEmptyInput closes an input modal that was submitted with an
+// empty value and emits a toast so the user knows nothing happened.
+// Previously the modal closed silently — users frequently assumed
+// they'd just created or renamed something when they hadn't.
+func (m *Model) cancelEmptyInput(field string) tea.Cmd {
+	m.showInput = false
+	m.inputValue = ""
+	return m.showToast("Cancelled — "+field+" required", ToastInfo, 2*time.Second)
+}
 
 func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
@@ -49,8 +61,7 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch m.inputMode {
 		case "create":
 			if m.inputValue == "" {
-				m.showInput = false
-				return m, nil
+				return m, m.cancelEmptyInput("title")
 			}
 			if _, err := filesystem.CreateNote(m.currentDir, m.inputValue); err == nil {
 				m.showInput = false
@@ -59,8 +70,7 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case "create_folder":
 			if m.inputValue == "" {
-				m.showInput = false
-				return m, nil
+				return m, m.cancelEmptyInput("folder name")
 			}
 			if err := filesystem.CreateFolder(m.currentDir, m.inputValue); err == nil {
 				m.showInput = false
@@ -69,8 +79,7 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case "rename":
 			if m.inputValue == "" {
-				m.showInput = false
-				return m, nil
+				return m, m.cancelEmptyInput("new title")
 			}
 			if m.cursor < len(m.items) && m.items[m.cursor].Note != nil {
 				if err := filesystem.RenameNote(m.items[m.cursor].Note, m.inputValue); err == nil {
@@ -81,8 +90,7 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case "rename_folder":
 			if m.inputValue == "" {
-				m.showInput = false
-				return m, nil
+				return m, m.cancelEmptyInput("new folder name")
 			}
 			if m.cursor < len(m.items) && m.items[m.cursor].IsFolder {
 				if err := filesystem.RenameFolder(m.items[m.cursor].Path, m.inputValue); err == nil {

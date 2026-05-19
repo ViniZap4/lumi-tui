@@ -91,7 +91,13 @@ func (m Model) updateHomeSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) openConfig() tea.Cmd {
-	configDir := filepath.Join(os.Getenv("HOME"), ".config", "lumi")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		// No home dir, no global config — silently bail. Pre-existing
+		// code already swallowed MkdirAll errors here.
+		return nil
+	}
+	configDir := filepath.Join(home, ".config", "lumi")
 	configPath := filepath.Join(configDir, "config.yaml")
 
 	os.MkdirAll(configDir, 0755)

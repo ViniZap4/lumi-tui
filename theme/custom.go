@@ -12,7 +12,14 @@ import (
 func loadCustomThemes() map[string]Theme {
 	themes := make(map[string]Theme)
 
-	dir := filepath.Join(os.Getenv("HOME"), ".config", "lumi", "themes")
+	// UserHomeDir handles Windows and missing $HOME more cleanly than
+	// os.Getenv. On failure we silently return the empty theme set —
+	// callers fall back to the built-in catalogue.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return themes
+	}
+	dir := filepath.Join(home, ".config", "lumi", "themes")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return themes
