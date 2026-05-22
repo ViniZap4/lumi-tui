@@ -20,6 +20,7 @@ Usage:
   lumi                       open the notes dir from $LUMI_NOTES_DIR or the current dir
   lumi <directory>           open a directory of .md files (lumi-managed or plain)
   lumi <file.md>             open a single .md file (parent dir becomes the workspace)
+  lumi login <server-url>    sign in to a lumi-server v2 instance (Phase 5)
   lumi --help, -h            show this help
   lumi --version, -v         print version
 
@@ -29,6 +30,12 @@ note already had frontmatter or you explicitly add metadata from the UI.
 `
 
 func main() {
+	// Subcommand dispatch happens before parseArgs so `lumi login <url>` is
+	// not mis-parsed as `lumi <directory>`.
+	if len(os.Args) >= 2 && os.Args[1] == "login" {
+		os.Exit(runLoginCmd(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
+	}
+
 	rootDir, initialNote, splash, exitCode, ok := parseArgs(os.Args[1:])
 	if !ok {
 		os.Exit(exitCode)
