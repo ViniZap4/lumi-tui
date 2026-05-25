@@ -136,7 +136,19 @@ func (c *Client) Logout(ctx context.Context) error {
 
 func (c *Client) do(ctx context.Context, method, path string, body any, requireToken bool, out any) error {
 	u := *c.baseURL
-	u.Path = singleJoinPath(u.Path, path)
+	// `path` may carry a query string (e.g. "/api/.../notes?limit=200").
+	// Split before assigning to u.Path so the query lands in
+	// u.RawQuery — otherwise net/url percent-encodes the `?` and the
+	// server sees a single weird path with no query.
+	pathPart, queryPart := path, ""
+	if idx := strings.IndexByte(path, '?'); idx >= 0 {
+		pathPart = path[:idx]
+		queryPart = path[idx+1:]
+	}
+	u.Path = singleJoinPath(u.Path, pathPart)
+	if queryPart != "" {
+		u.RawQuery = queryPart
+	}
 
 	var reqBody io.Reader
 	if body != nil {

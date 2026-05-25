@@ -26,6 +26,7 @@ Usage:
   lumi accounts [--verify]   list signed-in servers (Phase 5)
   lumi vaults                list vaults from ~/.config/lumi/vaults.yaml (Phase 5)
   lumi vault link <path>     register a directory as a vault (Phase 5)
+  lumi vault clone <url>/<slug> [<path>]   pull a server vault locally (Phase 5)
   lumi --help, -h            show this help
   lumi --version, -v         print version
 

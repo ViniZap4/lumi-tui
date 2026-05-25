@@ -26,6 +26,12 @@ Usage:
       stored Path after filepath.Clean). The vault files on disk are
       NOT touched — unlink is purely a registry operation.
 
+  lumi vault clone <server-url>/<slug> [<path>] [--name <name>] [--force]
+      Download every note from a server-hosted vault to a local
+      directory and register it. Requires 'lumi login <server-url>'
+      first. Re-running on an existing directory skips files that are
+      already there unless --force is passed.
+
 Flags (link):
   --name <name>       Display name (default: basename of <path>).
   --server <url>      Bind to a server URL. Must match a row in
@@ -57,6 +63,8 @@ func runVaultCmd(args []string, stdout, stderr io.Writer) int {
 		return runVaultLinkCmd(args[1:], stdout, stderr)
 	case "unlink":
 		return runVaultUnlinkCmd(args[1:], stdout, stderr)
+	case "clone":
+		return runVaultCloneCmd(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Error: unknown vault subcommand %q\n\n", args[0])
 		fmt.Fprint(stderr, vaultUsage)
