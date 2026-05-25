@@ -20,7 +20,13 @@ Usage:
       shows up in the startup picker and in 'lumi vaults'. Does NOT
       touch the server — server-side create / clone is a later slice.
 
-Flags:
+  lumi vault unlink <id-or-path>
+      Drop a row from vaults.yaml. <id-or-path> may be a UUID (matched
+      against the row's id) or a directory path (matched against the
+      stored Path after filepath.Clean). The vault files on disk are
+      NOT touched — unlink is purely a registry operation.
+
+Flags (link):
   --name <name>       Display name (default: basename of <path>).
   --server <url>      Bind to a server URL. Must match a row in
                       ~/.config/lumi/accounts.yaml unless --account is
@@ -29,9 +35,11 @@ Flags:
                       bound vault.
 
 Notes:
-  * <path> must be an existing directory.
-  * Re-running with the same path overwrites the matching row (matched
-    by vault id, generated deterministically from the absolute path).
+  * link: <path> must be an existing directory.
+  * link: Re-running with a new id overwrites no existing rows; pass
+    the existing id (via vaults.yaml or 'lumi vaults') to upsert.
+  * unlink: never deletes the actual files. Use 'rm -rf' yourself if
+    you want the vault gone from disk.
 `
 
 // runVaultCmd dispatches `lumi vault <subcommand>`. Slice 4 ships only
@@ -47,6 +55,8 @@ func runVaultCmd(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "link":
 		return runVaultLinkCmd(args[1:], stdout, stderr)
+	case "unlink":
+		return runVaultUnlinkCmd(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Error: unknown vault subcommand %q\n\n", args[0])
 		fmt.Fprint(stderr, vaultUsage)
@@ -210,6 +220,92 @@ func runVaultLinkCmd(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "Linked vault %q (%s) at %s\n", name, bind, abs)
 	return 0
+}
+
+// runVaultUnlinkCmd implements `lumi vault unlink <id-or-path>`. Removes
+// the matching row from vaults.yaml. Files on disk are untouched —
+// this is purely a registry operation. UUID match wins over path match
+// (so a path that happens to look like a UUID gets the id path).
+func runVaultUnlinkCmd(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintf(stderr, "Error: unlink requires an id-or-path argument\n\n")
+		fmt.Fprint(stderr, vaultUsage)
+		return 64
+	}
+	for _, a := range args[1:] {
+		// link's flags shouldn't bleed into unlink — be strict.
+		if strings.HasPrefix(a, "-") {
+			fmt.Fprintf(stderr, "Error: unknown flag %q for unlink\n", a)
+			return 64
+		}
+	}
+	if args[0] == "--help" || args[0] == "-h" {
+		fmt.Fprint(stdout, vaultUsage)
+		return 0
+	}
+
+	target := args[0]
+	if len(args) > 1 {
+		fmt.Fprintf(stderr, "Error: unexpected extra argument %q\n", args[1])
+		return 64
+	}
+
+	// UUID-shaped target → id match. Anything else → path match (after
+	// abs+clean so the user can pass `./notes/foo` and we still find
+	// the row stored at /Users/u/notes/foo).
+	if looksLikeUUID(target) {
+		removed, remaining, err := account.RemoveVaultByID(target)
+		if err != nil {
+			fmt.Fprintf(stderr, "Error: %v\n", err)
+			return 1
+		}
+		if !removed {
+			fmt.Fprintf(stderr, "No vault with id %q found in vaults.yaml.\n", target)
+			return 2
+		}
+		fmt.Fprintf(stdout, "Unlinked vault %s (%d remaining).\n", target, len(remaining))
+		return 0
+	}
+
+	abs, err := filepath.Abs(target)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: resolve path %q: %v\n", target, err)
+		return 1
+	}
+	removed, remaining, err := account.RemoveVaultByPath(abs)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
+	if !removed {
+		fmt.Fprintf(stderr, "No vault registered at %q.\n", abs)
+		return 2
+	}
+	fmt.Fprintf(stdout, "Unlinked vault at %s (%d remaining).\n", abs, len(remaining))
+	return 0
+}
+
+// looksLikeUUID is the CLI-side counterpart to account.isLikelyUUID
+// (which is unexported). Inlined here so cmd_vault.go doesn't grow a
+// dependency on internal account-package helpers.
+func looksLikeUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	low := strings.ToLower(s)
+	for i, r := range low {
+		switch i {
+		case 8, 13, 18, 23:
+			if r != '-' {
+				return false
+			}
+		default:
+			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // newVaultID generates a v4 UUID without pulling in a third-party

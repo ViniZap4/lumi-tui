@@ -143,6 +143,175 @@ func UpsertVault(entry VaultEntry) ([]VaultEntry, error) {
 	return UpsertVaultAt(path, entry)
 }
 
+// RemoveVaultByID drops the row whose `id` matches (case-insensitive)
+// from the default vaults.yaml and writes the result. Returns
+// (removed, remaining, err). Mirrors Apple's `VaultRegistry.remove`.
+func RemoveVaultByID(id string) (bool, []VaultEntry, error) {
+	path, err := VaultsPath()
+	if err != nil {
+		return false, nil, err
+	}
+	return RemoveVaultByIDAt(path, id)
+}
+
+// RemoveVaultByIDAt is the test-friendly form of RemoveVaultByID.
+func RemoveVaultByIDAt(path, id string) (bool, []VaultEntry, error) {
+	current, err := LoadVaultsFrom(path)
+	if err != nil {
+		return false, nil, err
+	}
+	idLower := strings.ToLower(strings.TrimSpace(id))
+	out := make([]VaultEntry, 0, len(current))
+	removed := false
+	for _, e := range current {
+		if !removed && strings.EqualFold(e.ID, idLower) {
+			removed = true
+			continue
+		}
+		out = append(out, e)
+	}
+	if !removed {
+		return false, current, nil
+	}
+	if err := SaveVaultsAt(path, out); err != nil {
+		return true, nil, err
+	}
+	reload, err := LoadVaultsFrom(path)
+	return true, reload, err
+}
+
+// RemoveVaultByPath drops the row whose `Path` matches the given
+// absolute path. Useful for `lumi vault unlink <path>` where the user
+// passed a directory, not a UUID. Comparison uses `filepath.Clean` to
+// normalise trailing slashes. Returns (removed, remaining, err).
+func RemoveVaultByPath(absPath string) (bool, []VaultEntry, error) {
+	path, err := VaultsPath()
+	if err != nil {
+		return false, nil, err
+	}
+	return RemoveVaultByPathAt(path, absPath)
+}
+
+// RemoveVaultByPathAt is the test-friendly form of RemoveVaultByPath.
+func RemoveVaultByPathAt(path, absPath string) (bool, []VaultEntry, error) {
+	current, err := LoadVaultsFrom(path)
+	if err != nil {
+		return false, nil, err
+	}
+	out := make([]VaultEntry, 0, len(current))
+	removed := false
+	for _, e := range current {
+		if !removed && pathsEqual(e.Path, absPath) {
+			removed = true
+			continue
+		}
+		out = append(out, e)
+	}
+	if !removed {
+		return false, current, nil
+	}
+	if err := SaveVaultsAt(path, out); err != nil {
+		return true, nil, err
+	}
+	reload, err := LoadVaultsFrom(path)
+	return true, reload, err
+}
+
+// pathsEqual compares two filesystem paths tolerantly: Clean first
+// (handles trailing slashes, `..`), then EvalSymlinks if the cleaned
+// forms differ AND both paths exist. The EvalSymlinks step matters on
+// macOS where `/var` is a firmlink to `/private/var` — `filepath.Abs`
+// can return either form depending on whether the caller passed an
+// absolute or relative argument. Missing paths fall back to string
+// equality so stale registry rows pointing at deleted vaults still
+// match via id-or-exact-path lookups.
+func pathsEqual(a, b string) bool {
+	ca := filepath.Clean(a)
+	cb := filepath.Clean(b)
+	if ca == cb {
+		return true
+	}
+	// EvalSymlinks fails when the path doesn't exist; treat the
+	// inequality from the Clean comparison as authoritative in that
+	// case. Don't ignore the existence check — the firmlink form
+	// becomes apparent only after a successful EvalSymlinks on a real
+	// path.
+	resA, errA := filepath.EvalSymlinks(ca)
+	resB, errB := filepath.EvalSymlinks(cb)
+	if errA != nil || errB != nil {
+		return false
+	}
+	return resA == resB
+}
+
+// BumpLastOpenedAt updates the matching row's `last_opened_at` to the
+// supplied wall-clock time. `match` is a free-form locator: a UUID is
+// matched against `id`, anything else is treated as a filesystem path
+// (compared against `Path` after filepath.Clean). Returns (bumped, err).
+// No-op if no row matches.
+func BumpLastOpenedAt(match string, when time.Time) (bool, error) {
+	path, err := VaultsPath()
+	if err != nil {
+		return false, err
+	}
+	return BumpLastOpenedAtAt(path, match, when)
+}
+
+// BumpLastOpenedAtAt is the test-friendly form of BumpLastOpenedAt.
+func BumpLastOpenedAtAt(path, match string, when time.Time) (bool, error) {
+	current, err := LoadVaultsFrom(path)
+	if err != nil {
+		return false, err
+	}
+	if len(current) == 0 {
+		return false, nil
+	}
+	bumped := false
+	matchLower := strings.ToLower(strings.TrimSpace(match))
+	asUUID := isLikelyUUID(matchLower)
+	for i := range current {
+		// UUID id match wins over path match; if `match` happens to be
+		// a valid id, we don't try the path path too — be specific.
+		if asUUID && strings.EqualFold(current[i].ID, matchLower) {
+			current[i].LastOpenedAt = when.UTC().Truncate(time.Second)
+			bumped = true
+			break
+		}
+		if !asUUID && pathsEqual(current[i].Path, match) {
+			current[i].LastOpenedAt = when.UTC().Truncate(time.Second)
+			bumped = true
+			break
+		}
+	}
+	if !bumped {
+		return false, nil
+	}
+	return true, SaveVaultsAt(path, current)
+}
+
+// isLikelyUUID is a cheap heuristic — exact `8-4-4-4-12` lowercased hex.
+// We don't pull in a UUID library just to validate; LoadVaults already
+// rejects malformed ids on parse, so a false negative here just means
+// the path path runs too (also harmless).
+func isLikelyUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, r := range s {
+		switch i {
+		case 8, 13, 18, 23:
+			if r != '-' {
+				return false
+			}
+		default:
+			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // UpsertVaultAt is the test-friendly form of UpsertVault.
 func UpsertVaultAt(path string, entry VaultEntry) ([]VaultEntry, error) {
 	current, err := LoadVaultsFrom(path)

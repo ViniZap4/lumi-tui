@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/vinizap/lumi/tui-client/account"
@@ -66,6 +67,13 @@ func main() {
 			if perr == nil && picked != nil {
 				rootDir = picked.Path
 				splash = false
+				// Picker selection counts as opening — bump
+				// last_opened_at so the next session ranks this vault
+				// first. Best-effort; a write failure is logged via
+				// stderr but doesn't block startup.
+				if _, berr := account.BumpLastOpenedAt(picked.ID, time.Now()); berr != nil {
+					fmt.Fprintf(os.Stderr, "Warning: could not update last_opened_at: %v\n", berr)
+				}
 			}
 			// Cancellation or loader error → fall through to splash so
 			// the user is never blocked by a misbehaving registry.
@@ -78,6 +86,19 @@ func main() {
 	if initialNote != "" {
 		if abs, err := filepath.Abs(initialNote); err == nil {
 			initialNote = abs
+		}
+	}
+
+	// `lumi <dir>` opening a directory that matches a registered vault
+	// also counts as opening. (Picker path already bumped above by id;
+	// this branch matches by absolute path.) No-op when no row matches.
+	if !splash {
+		if _, berr := account.BumpLastOpenedAt(rootDir, time.Now()); berr != nil {
+			// Don't spam stderr in the common "no match" case — only
+			// surface real I/O failures. Bump returns (false, nil) for
+			// the no-match path, so `err != nil` here is a genuine
+			// write error worth flagging.
+			fmt.Fprintf(os.Stderr, "Warning: could not update last_opened_at: %v\n", berr)
 		}
 	}
 
