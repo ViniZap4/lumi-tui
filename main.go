@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/vinizap/lumi/tui-client/account"
 	"github.com/vinizap/lumi/tui-client/ui"
 )
 
@@ -50,6 +51,24 @@ func main() {
 		os.Exit(exitCode)
 	}
 
+	// Splash screen only when the user gave lumi no hint at all (no CLI
+	// arg AND no $LUMI_NOTES_DIR). In that case, before falling back to
+	// "splash on cwd", offer the vault picker if vaults.yaml has any
+	// entries — Apple-client users will usually have at least one,
+	// even before they've signed in to a server.
+	if splash && initialNote == "" {
+		entries, err := account.LoadVaults()
+		if err == nil && shouldRunVaultPicker(splash, initialNote, len(entries)) {
+			picked, perr := runVaultPicker(entries)
+			if perr == nil && picked != nil {
+				rootDir = picked.Path
+				splash = false
+			}
+			// Cancellation or loader error → fall through to splash so
+			// the user is never blocked by a misbehaving registry.
+		}
+	}
+
 	if abs, err := filepath.Abs(rootDir); err == nil {
 		rootDir = abs
 	}
@@ -59,9 +78,6 @@ func main() {
 		}
 	}
 
-	// Splash screen only when the user gave lumi no hint at all
-	// (no CLI arg AND no $LUMI_NOTES_DIR). Anything else lands on
-	// the file browser directly.
 	var model ui.Model
 	if splash && initialNote == "" {
 		model = ui.NewSimpleModel(rootDir)
