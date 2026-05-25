@@ -24,6 +24,7 @@ Usage:
   lumi login <server-url>    sign in to a lumi-server v2 instance (Phase 5)
   lumi accounts [--verify]   list signed-in servers (Phase 5)
   lumi vaults                list vaults from ~/.config/lumi/vaults.yaml (Phase 5)
+  lumi vault link <path>     register a directory as a vault (Phase 5)
   lumi --help, -h            show this help
   lumi --version, -v         print version
 
@@ -43,6 +44,8 @@ func main() {
 			os.Exit(runAccountsCmd(os.Args[2:], os.Stdout, os.Stderr))
 		case "vaults":
 			os.Exit(runVaultsCmd(os.Args[2:], os.Stdout, os.Stderr))
+		case "vault":
+			os.Exit(runVaultCmd(os.Args[2:], os.Stdout, os.Stderr))
 		}
 	}
 

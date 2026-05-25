@@ -59,6 +59,227 @@ func LoadVaults() ([]VaultEntry, error) {
 	return LoadVaultsFrom(path)
 }
 
+// SaveVaultsAt rewrites the vault registry at `path` with `entries`,
+// matching lumi-apple's `VaultRegistry.writeToDisk` byte shape so the
+// two clients can hand the file back and forth without drift.
+//
+// Write is atomic via tmpfile + rename at mode 0600 (vault paths and
+// account usernames live in this file; not a secret but not for other
+// users either). Parent directory is created on demand at 0700.
+//
+// Sort order mirrors Apple's: `last_opened_at ?? added_at` descending,
+// so the resulting file is identical regardless of which client wrote
+// last. `entries` is not mutated.
+func SaveVaultsAt(path string, entries []VaultEntry) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
+	}
+	sorted := append([]VaultEntry(nil), entries...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		la := sorted[i].LastOpenedAt
+		if la.IsZero() {
+			la = sorted[i].AddedAt
+		}
+		lb := sorted[j].LastOpenedAt
+		if lb.IsZero() {
+			lb = sorted[j].AddedAt
+		}
+		return la.After(lb)
+	})
+
+	body := renderVaultsYAML(sorted)
+
+	// Write tmp, fsync, rename — same shape as account/accounts.go's
+	// save path. Force 0600 on the tmp file so an interrupted rename
+	// can't leak a world-readable artifact.
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".vaults-*.yaml")
+	if err != nil {
+		return fmt.Errorf("create tmp: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath) // safe even after a successful rename
+	if _, err := tmp.WriteString(body); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write tmp: %w", err)
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return fmt.Errorf("chmod tmp: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close tmp: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("rename to %s: %w", path, err)
+	}
+	// If the file pre-existed at a wider mode, the rename inherits
+	// the tmp's perms (0600) on macOS/Linux, but make it explicit so
+	// we don't depend on platform quirks.
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("chmod %s: %w", path, err)
+	}
+	return nil
+}
+
+// SaveVaults writes the registry at the default location
+// (`~/.config/lumi/vaults.yaml`). Thin wrapper around SaveVaultsAt.
+func SaveVaults(entries []VaultEntry) error {
+	path, err := VaultsPath()
+	if err != nil {
+		return err
+	}
+	return SaveVaultsAt(path, entries)
+}
+
+// UpsertVault inserts or replaces a row (matched by `id`) in the
+// default vaults.yaml and writes the result. Matches Apple's
+// `VaultRegistry.upsert` semantics. Returns the resulting full list
+// (post-sort) for callers that want to display it.
+func UpsertVault(entry VaultEntry) ([]VaultEntry, error) {
+	path, err := VaultsPath()
+	if err != nil {
+		return nil, err
+	}
+	return UpsertVaultAt(path, entry)
+}
+
+// UpsertVaultAt is the test-friendly form of UpsertVault.
+func UpsertVaultAt(path string, entry VaultEntry) ([]VaultEntry, error) {
+	current, err := LoadVaultsFrom(path)
+	if err != nil {
+		return nil, err
+	}
+	found := false
+	for i := range current {
+		if strings.EqualFold(current[i].ID, entry.ID) {
+			current[i] = entry
+			found = true
+			break
+		}
+	}
+	if !found {
+		current = append(current, entry)
+	}
+	if err := SaveVaultsAt(path, current); err != nil {
+		return nil, err
+	}
+	// Re-load so the returned slice matches what's on disk (re-sorted,
+	// home-relative paths re-expanded, etc.).
+	return LoadVaultsFrom(path)
+}
+
+// EncodeHomeRelative is the Go equivalent of lumi-apple's
+// `encodeHomeRelative`. When `absolute` sits inside the user's home
+// directory, the leading `$HOME[/]` is replaced with `~[/]` so the
+// stored path is portable across machines that share a HOME-relative
+// layout. Anything outside `$HOME` passes through unchanged.
+func EncodeHomeRelative(absolute string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return absolute
+	}
+	if absolute == home {
+		return "~"
+	}
+	prefix := home
+	if !strings.HasSuffix(prefix, string(os.PathSeparator)) {
+		prefix += string(os.PathSeparator)
+	}
+	if strings.HasPrefix(absolute, prefix) {
+		return "~/" + absolute[len(prefix):]
+	}
+	return absolute
+}
+
+// renderVaultsYAML produces the exact byte shape lumi-apple's
+// `VaultRegistry.writeToDisk` emits. The two writers must stay in
+// lockstep so a round-trip through either client leaves the file
+// unchanged.
+func renderVaultsYAML(entries []VaultEntry) string {
+	var sb strings.Builder
+	sb.WriteString("# lumi shared vault registry. Format defined in SPEC.md.\n")
+	sb.WriteString("# Written by lumi-apple and lumi-tui (Phase 5+).\n")
+	sb.WriteString("vaults:\n")
+	for _, e := range entries {
+		// `RawPath` carries the home-relative form when the entry came
+		// off disk via LoadVaults. New entries created in-process via
+		// `lumi vault link` populate RawPath via EncodeHomeRelative
+		// before calling here. If RawPath is empty (e.g. an entry built
+		// by hand-rolled tests), fall back to the expanded Path.
+		pathStr := e.RawPath
+		if pathStr == "" {
+			pathStr = e.Path
+		}
+		sb.WriteString("  - id: ")
+		sb.WriteString(strings.ToLower(strings.TrimSpace(e.ID)))
+		sb.WriteByte('\n')
+		sb.WriteString("    name: ")
+		sb.WriteString(yamlString(e.Name))
+		sb.WriteByte('\n')
+		sb.WriteString("    path: ")
+		sb.WriteString(yamlString(pathStr))
+		sb.WriteByte('\n')
+		sb.WriteString("    server: ")
+		if e.Server == "" {
+			sb.WriteString("null")
+		} else {
+			sb.WriteString(yamlString(e.Server))
+		}
+		sb.WriteByte('\n')
+		sb.WriteString("    account: ")
+		if e.Account == "" {
+			sb.WriteString("null")
+		} else {
+			sb.WriteString(yamlString(e.Account))
+		}
+		sb.WriteByte('\n')
+		sb.WriteString("    added_at: ")
+		sb.WriteString(formatTimestamp(e.AddedAt))
+		sb.WriteByte('\n')
+		sb.WriteString("    last_opened_at: ")
+		if e.LastOpenedAt.IsZero() {
+			sb.WriteString("null")
+		} else {
+			sb.WriteString(formatTimestamp(e.LastOpenedAt))
+		}
+		sb.WriteByte('\n')
+	}
+	return sb.String()
+}
+
+// yamlString mirrors lumi-apple's `yamlString` helper. Quotes the value
+// (escaping inner `"`) when it contains characters that would confuse
+// the line-by-line reader, otherwise emits bare.
+func yamlString(s string) string {
+	if s == "" {
+		return "\"\""
+	}
+	needsQuoting := false
+	if strings.ContainsAny(s, ":#\"") {
+		needsQuoting = true
+	}
+	if !needsQuoting && len(s) > 0 {
+		if s[0] == ' ' || s[len(s)-1] == ' ' {
+			needsQuoting = true
+		}
+	}
+	if !needsQuoting {
+		return s
+	}
+	escaped := strings.ReplaceAll(s, `"`, `\"`)
+	return `"` + escaped + `"`
+}
+
+// formatTimestamp emits an ISO-8601 / RFC3339 stamp the Apple side
+// produces via `Date.ISO8601Format()`. Apple's default format includes
+// no fractional seconds; we match by using RFC3339 (no nanos). UTC.
+func formatTimestamp(t time.Time) string {
+	if t.IsZero() {
+		return "null"
+	}
+	return t.UTC().Format("2006-01-02T15:04:05Z")
+}
+
 // LoadVaultsFrom reads the vaults registry from an explicit path. Used by
 // tests. Tolerant of hand-edits — unknown top-level keys are ignored;
 // rows missing required fields are skipped (rather than failing the load).
