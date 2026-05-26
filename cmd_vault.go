@@ -32,6 +32,12 @@ Usage:
       first. Re-running on an existing directory skips files that are
       already there unless --force is passed.
 
+  lumi vault sync <server-url>/<slug> [<path>] [--dry-run]
+      Push every local *.md with an 'id:' via the server's diff
+      endpoint (CRDT-merged) and pull every remote note that's missing
+      locally. Use after 'lumi vault clone' to keep a vault in step.
+      Without <path>, uses the registered vault's path.
+
 Flags (link):
   --name <name>       Display name (default: basename of <path>).
   --server <url>      Bind to a server URL. Must match a row in
@@ -65,6 +71,8 @@ func runVaultCmd(args []string, stdout, stderr io.Writer) int {
 		return runVaultUnlinkCmd(args[1:], stdout, stderr)
 	case "clone":
 		return runVaultCloneCmd(args[1:], stdout, stderr)
+	case "sync":
+		return runVaultSyncCmd(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Error: unknown vault subcommand %q\n\n", args[0])
 		fmt.Fprint(stderr, vaultUsage)
