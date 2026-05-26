@@ -197,12 +197,15 @@ func (m Model) renderFullNote() string {
 		}
 		styledLine := m.renderContentLine(line, style, inlineCls, activeRange, selBg, isCursorLine)
 
-		// Pad code block lines with background to full width
+		// Pad code block lines with the subtle code-block background
+		// to full width — same blended tint mdLineStyle uses, so the
+		// padding tail is byte-identical to the content's background
+		// and the right edge of the block reads as one rectangle.
 		if inCode && !isCursorLine && !activeRange.active {
 			visWidth := lipgloss.Width(styledLine)
 			pad := m.width - 2 - visWidth
 			if pad > 0 {
-				styledLine += lipgloss.NewStyle().Background(theme.Current.SelectedBg).Render(strings.Repeat(" ", pad))
+				styledLine += lipgloss.NewStyle().Background(codeBlockBg).Render(strings.Repeat(" ", pad))
 			}
 		}
 
@@ -325,11 +328,13 @@ func mdLineStyle(line string, inCodeBlock bool) lipgloss.Style {
 	if inCodeBlock {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") {
-			// Fence lines: dim with background
-			return lipgloss.NewStyle().Foreground(t.Muted).Background(t.SelectedBg)
+			// Fence lines: dim with code-block background tint.
+			return lipgloss.NewStyle().Foreground(t.Muted).Background(codeBlockBg)
 		}
-		// Code content: accent color with background
-		return lipgloss.NewStyle().Foreground(t.Accent).Background(t.SelectedBg)
+		// Code content: accent color on the same subtle tint so the
+		// fenced range reads as one continuous block instead of two
+		// hard-edged bands (fence + body) with different shades.
+		return lipgloss.NewStyle().Foreground(t.Accent).Background(codeBlockBg)
 	}
 	trimmed := strings.TrimSpace(line)
 	switch {

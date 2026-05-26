@@ -25,12 +25,12 @@ import (
 //	    added_at: <iso8601>
 //	    last_opened_at: <iso8601|null>
 type VaultEntry struct {
-	ID           string    // canonical lowercase UUID
+	ID           string // canonical lowercase UUID
 	Name         string
-	Path         string    // expanded (~ replaced with $HOME)
-	RawPath      string    // as-written (may still carry ~/)
-	Server       string    // empty when this is a local-only vault
-	Account      string    // empty when not bound
+	Path         string // expanded (~ replaced with $HOME)
+	RawPath      string // as-written (may still carry ~/)
+	Server       string // empty when this is a local-only vault
+	Account      string // empty when not bound
 	AddedAt      time.Time
 	LastOpenedAt time.Time // zero when never opened
 }
@@ -313,6 +313,20 @@ func isLikelyUUID(s string) bool {
 }
 
 // UpsertVaultAt is the test-friendly form of UpsertVault.
+//
+// Matches an existing row in TWO ways, in order:
+//  1. by ID (the canonical case — same client re-opens the vault and
+//     wants to bump `last_opened_at`)
+//  2. by Path via `pathsEqual` (cross-client case — lumi-apple writes
+//     a fresh UUID on every open, so without a path match the same
+//     filesystem location accumulates duplicate rows. This is the fix
+//     for the "12-entries-all-pointing-at-the-same-folder" picker
+//     bug observed 2026-05-26.)
+//
+// When the path match wins, we preserve the incoming entry's ID (so
+// the caller's expectations hold) but replace the existing row in
+// place — that's still the de-dup outcome the user wants, with no
+// duplicate row left over.
 func UpsertVaultAt(path string, entry VaultEntry) ([]VaultEntry, error) {
 	current, err := LoadVaultsFrom(path)
 	if err != nil {
@@ -327,6 +341,15 @@ func UpsertVaultAt(path string, entry VaultEntry) ([]VaultEntry, error) {
 		}
 	}
 	if !found {
+		for i := range current {
+			if entry.Path != "" && pathsEqual(current[i].Path, entry.Path) {
+				current[i] = entry
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
 		current = append(current, entry)
 	}
 	if err := SaveVaultsAt(path, current); err != nil {
@@ -335,6 +358,61 @@ func UpsertVaultAt(path string, entry VaultEntry) ([]VaultEntry, error) {
 	// Re-load so the returned slice matches what's on disk (re-sorted,
 	// home-relative paths re-expanded, etc.).
 	return LoadVaultsFrom(path)
+}
+
+// DedupVaultsByPath collapses consecutive rows that resolve to the
+// same filesystem path, keeping the most recently used (last_opened_at,
+// fall back to added_at). Returns a new slice; the input is untouched.
+//
+// Used by `LoadVaultsFrom` as a silent migration for files written by
+// older lumi-apple versions that didn't dedupe-by-path on upsert. The
+// next save flushes the cleaned set back to disk via the normal write
+// path — no scary surprises for the user, just fewer rows over time.
+func DedupVaultsByPath(entries []VaultEntry) []VaultEntry {
+	if len(entries) < 2 {
+		return entries
+	}
+	type slot struct {
+		idx   int
+		entry VaultEntry
+	}
+	// First pass: walk entries, keep the "best" representative for each
+	// path. Best = newest by lastOpenedAt (fallback addedAt). Stable
+	// order: when keys tie, the first occurrence in the input wins.
+	keepers := make([]slot, 0, len(entries))
+	for _, e := range entries {
+		matched := -1
+		for i, k := range keepers {
+			if pathsEqual(k.entry.Path, e.Path) {
+				matched = i
+				break
+			}
+		}
+		if matched < 0 {
+			keepers = append(keepers, slot{idx: len(keepers), entry: e})
+			continue
+		}
+		// Compare freshness; replace if `e` is newer.
+		existing := keepers[matched].entry
+		if vaultFreshnessKey(e).After(vaultFreshnessKey(existing)) {
+			keepers[matched].entry = e
+		}
+	}
+	out := make([]VaultEntry, 0, len(keepers))
+	for _, k := range keepers {
+		out = append(out, k.entry)
+	}
+	return out
+}
+
+// vaultFreshnessKey is the sort key used by dedup + the loader's
+// newest-first ordering. Defined in one place so the two stay
+// consistent — every comparison reduces to this single time value.
+func vaultFreshnessKey(e VaultEntry) time.Time {
+	if !e.LastOpenedAt.IsZero() {
+		return e.LastOpenedAt
+	}
+	return e.AddedAt
 }
 
 // EncodeHomeRelative is the Go equivalent of lumi-apple's
@@ -461,18 +539,17 @@ func LoadVaultsFrom(path string) ([]VaultEntry, error) {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 	entries := parseVaultsYAML(string(data))
+	// Silent migration: drop duplicate-by-path rows that older
+	// lumi-apple versions wrote (every open generated a fresh UUID, so
+	// the same folder accumulated dozens of rows). Keeps the newest
+	// row per path. The next save flushes the deduped set back to disk
+	// via UpsertVaultAt/RemoveVaultByID/BumpLastOpenedAtAt — no scary
+	// rewrite-on-read.
+	entries = DedupVaultsByPath(entries)
 	// Sort most-recently-opened first — matches the Apple-side ordering
 	// so the two clients show the same list.
 	sort.SliceStable(entries, func(i, j int) bool {
-		la := entries[i].LastOpenedAt
-		if la.IsZero() {
-			la = entries[i].AddedAt
-		}
-		lb := entries[j].LastOpenedAt
-		if lb.IsZero() {
-			lb = entries[j].AddedAt
-		}
-		return la.After(lb)
+		return vaultFreshnessKey(entries[i]).After(vaultFreshnessKey(entries[j]))
 	})
 	return entries, nil
 }

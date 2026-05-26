@@ -66,8 +66,9 @@ func (m Model) renderWithSearchModal(base string) string {
 
 			if i == m.cursor {
 				line := lipgloss.NewStyle().
-					Foreground(accentColor).
-					Background(selectedBg).
+					Foreground(theme.Current.Background).
+					Background(accentColor).
+					Bold(true).
 					Width(leftWidth).
 					Render(fmt.Sprintf(" > %s", name))
 				resultsList.WriteString(line)

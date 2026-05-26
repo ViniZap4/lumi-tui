@@ -21,6 +21,14 @@ var (
 	// Computed highlight colors (updated by ApplyTheme)
 	visualSelBg lipgloss.Color // visual selection background (blended)
 	yankFlashBg lipgloss.Color // yank flash background (blended)
+	// codeBlockBg is the background painted behind fenced markdown
+	// code blocks in the read view. Previously this used t.SelectedBg
+	// directly, which on tokyo-night / catppuccin / dracula produces
+	// loud horizontal bands every time the user scrolls past a code
+	// block — the read view looked stippled. Blending the background
+	// with a tiny bit of primary gives a subtle tint that reads as
+	// "code" without dominating the page.
+	codeBlockBg lipgloss.Color
 
 	// Borders
 	ActiveBorder   = lipgloss.RoundedBorder()
@@ -71,6 +79,11 @@ func ApplyTheme() {
 	// Compute highlight backgrounds by blending theme colors.
 	visualSelBg = blendHex(t.Background, t.Primary, 0.28)
 	yankFlashBg = blendHex(t.Background, t.Warning, 0.35)
+	// Code-block tint: very subtle (12%) so the band reads as "this
+	// is code" without becoming the dominant visual feature of the
+	// note. Compare to visualSelBg's 28% — selection wants to grab
+	// the eye, code-block backgrounds want to fade.
+	codeBlockBg = blendHex(t.Background, t.Primary, 0.12)
 
 	ActivePanelStyle = lipgloss.NewStyle().
 		Border(ActiveBorder).
@@ -87,9 +100,16 @@ func ApplyTheme() {
 		Foreground(primaryColor).
 		Padding(0, 1)
 
+	// Selected rows use the *inverted* color pattern — accent as
+	// background + theme-background as foreground. This guarantees high
+	// contrast on every theme (the alternative — accent foreground on a
+	// selectedBg background — produced unreadable pink-on-pink on
+	// catppuccin / tokyo-night where accent and selectedBg both sit in
+	// the warm side of the palette). Matches yazi / lazygit / ranger
+	// convention.
 	SelectedItemStyle = lipgloss.NewStyle().
-		Foreground(accentColor).
-		Background(selectedBg).
+		Foreground(t.Background).
+		Background(accentColor).
 		Bold(true).
 		Padding(0, 1)
 

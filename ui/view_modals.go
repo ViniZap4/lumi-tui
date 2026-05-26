@@ -164,8 +164,8 @@ func (m Model) navCenterCol(width, height int) string {
 
 		if i == m.navCursor {
 			line := lipgloss.NewStyle().
-				Foreground(accentColor).
-				Background(selectedBg).
+				Foreground(theme.Current.Background).
+				Background(accentColor).
 				Bold(true).
 				Width(width - 1).
 				Render(" > " + name)

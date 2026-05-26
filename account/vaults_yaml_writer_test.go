@@ -160,13 +160,13 @@ func TestUpsertVaultDistinctIDsCoexist(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "vaults.yaml")
 	a := VaultEntry{
-		ID:      "aaaa0000-0000-0000-0000-000000000000",
-		Name:    "A", Path: "/tmp/a", RawPath: "/tmp/a",
+		ID:   "aaaa0000-0000-0000-0000-000000000000",
+		Name: "A", Path: "/tmp/a", RawPath: "/tmp/a",
 		AddedAt: time.Now().UTC().Truncate(time.Second),
 	}
 	b := VaultEntry{
-		ID:      "bbbb0000-0000-0000-0000-000000000000",
-		Name:    "B", Path: "/tmp/b", RawPath: "/tmp/b",
+		ID:   "bbbb0000-0000-0000-0000-000000000000",
+		Name: "B", Path: "/tmp/b", RawPath: "/tmp/b",
 		AddedAt: time.Now().UTC().Add(time.Second).Truncate(time.Second),
 	}
 	if _, err := UpsertVaultAt(path, a); err != nil {
@@ -216,9 +216,9 @@ func TestSaveVaultsQuotingTriggers(t *testing.T) {
 	path := filepath.Join(dir, "vaults.yaml")
 	entries := []VaultEntry{{
 		ID:      "11111111-1111-1111-1111-111111111111",
-		Name:    "Has: colon",      // must be quoted
+		Name:    "Has: colon",          // must be quoted
 		RawPath: "/tmp/has hash#thing", // must be quoted
-		Server:  `quote"d`,          // must be quoted + escaped
+		Server:  `quote"d`,             // must be quoted + escaped
 		AddedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}}
 	if err := SaveVaultsAt(path, entries); err != nil {
@@ -234,5 +234,139 @@ func TestSaveVaultsQuotingTriggers(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Errorf("emitted file missing %q:\n%s", want, s)
 		}
+	}
+}
+
+// TestUpsertVaultMatchesByPathWhenIDDiffers — the actual bug we hit
+// in production: lumi-apple writes a fresh UUID on every open, so
+// every "reopen the same folder" was appending a new row instead of
+// updating the existing one. Twelve duplicate rows of the same path
+// showed up in the picker. Path-match wins as a second-chance dedup.
+func TestUpsertVaultMatchesByPathWhenIDDiffers(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vaults.yaml")
+	first := VaultEntry{
+		ID:      "aaaa0000-0000-0000-0000-000000000000",
+		Name:    "Work",
+		Path:    "/tmp/work",
+		RawPath: "/tmp/work",
+		AddedAt: time.Now().UTC().Truncate(time.Second),
+	}
+	if _, err := UpsertVaultAt(path, first); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	// Same path, *different* ID (this is what lumi-apple does).
+	second := first
+	second.ID = "bbbb0000-0000-0000-0000-000000000000"
+	second.Name = "Work (re-opened)"
+	if _, err := UpsertVaultAt(path, second); err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	entries, err := LoadVaultsFrom(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries after same-path re-upsert, want 1", len(entries))
+	}
+	if entries[0].Name != "Work (re-opened)" {
+		t.Errorf("second upsert didn't take: %+v", entries[0])
+	}
+	if entries[0].ID != "bbbb0000-0000-0000-0000-000000000000" {
+		t.Errorf("expected the incoming ID to win, got %q", entries[0].ID)
+	}
+}
+
+// TestDedupVaultsByPath — pure-logic test for the silent-migration
+// helper. Three rows pointing at the same path collapse to one;
+// freshness keeps the most-recent-last-opened (falling back to
+// added_at).
+func TestDedupVaultsByPath(t *testing.T) {
+	t0 := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	t1 := t0.Add(24 * time.Hour)
+	t2 := t1.Add(24 * time.Hour)
+	in := []VaultEntry{
+		{ID: "aaa", Name: "Old", Path: "/work", AddedAt: t0},
+		{ID: "bbb", Name: "Newer", Path: "/work", AddedAt: t1, LastOpenedAt: t2},
+		{ID: "ccc", Name: "Middle", Path: "/work", AddedAt: t1},
+		{ID: "ddd", Name: "Solo", Path: "/other", AddedAt: t1},
+	}
+	out := DedupVaultsByPath(in)
+	if len(out) != 2 {
+		t.Fatalf("got %d, want 2: %+v", len(out), out)
+	}
+	// Find /work entry — must be the "Newer" one because it has the
+	// most recent LastOpenedAt.
+	var work VaultEntry
+	for _, e := range out {
+		if e.Path == "/work" {
+			work = e
+		}
+	}
+	if work.Name != "Newer" {
+		t.Errorf("dedup didn't pick freshest /work: %+v", work)
+	}
+}
+
+// TestDedupVaultsByPathNoChange — single row or empty input passes
+// through untouched. Documents that dedup is opt-in safe.
+func TestDedupVaultsByPathNoChange(t *testing.T) {
+	if got := DedupVaultsByPath(nil); len(got) != 0 {
+		t.Errorf("nil → %d entries, want 0", len(got))
+	}
+	single := []VaultEntry{{ID: "x", Path: "/p"}}
+	out := DedupVaultsByPath(single)
+	if len(out) != 1 || out[0].ID != "x" {
+		t.Errorf("single passthrough broken: %+v", out)
+	}
+}
+
+// TestLoadVaultsFromAppliesDedup — end-to-end: a vaults.yaml file
+// containing duplicates is silently cleaned on load. The on-disk
+// file is not yet rewritten (that happens on the next save) — so we
+// only assert the returned slice.
+func TestLoadVaultsFromAppliesDedup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vaults.yaml")
+	// Write three rows by hand (skipping UpsertVaultAt so dedup
+	// doesn't run on write). Same path, different IDs — exactly the
+	// production poisoning pattern.
+	raw := `# lumi shared vault registry. Format defined in SPEC.md.
+schema_version: 1
+vaults:
+  - id: aaa00000-0000-0000-0000-000000000000
+    name: Work
+    path: /tmp/work
+    raw_path: /tmp/work
+    server: null
+    account: null
+    added_at: 2026-05-01T10:00:00Z
+    last_opened_at: 2026-05-01T10:00:00Z
+  - id: bbb00000-0000-0000-0000-000000000000
+    name: Work
+    path: /tmp/work
+    raw_path: /tmp/work
+    server: null
+    account: null
+    added_at: 2026-05-02T10:00:00Z
+    last_opened_at: 2026-05-02T10:00:00Z
+  - id: ccc00000-0000-0000-0000-000000000000
+    name: Other
+    path: /tmp/other
+    raw_path: /tmp/other
+    server: null
+    account: null
+    added_at: 2026-05-02T10:00:00Z
+    last_opened_at: 2026-05-02T10:00:00Z
+`
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	got, err := LoadVaultsFrom(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d entries, want 2 after dedup: %+v", len(got), got)
 	}
 }

@@ -355,9 +355,13 @@ func (m Model) renderCenterRow(item Item, innerWidth int, selected bool) string 
 
 	switch {
 	case selected:
+		// Inverted highlight (accent bg + theme-bg fg). The
+		// foreground=accent + background=selectedBg pattern was
+		// unreadable on catppuccin / tokyo-night where the two sit
+		// in the same palette region. See styles.go comment.
 		return lipgloss.NewStyle().
-			Foreground(accentColor).
-			Background(selectedBg).
+			Foreground(theme.Current.Background).
+			Background(accentColor).
 			Bold(true).
 			Width(innerWidth + 1).
 			Render(row)
