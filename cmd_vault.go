@@ -38,6 +38,11 @@ Usage:
       locally. Use after 'lumi vault clone' to keep a vault in step.
       Without <path>, uses the registered vault's path.
 
+  lumi vault manage
+      Interactive TUI for managing registered vaults — open, unlink,
+      sync, refresh. Adding new vaults still goes through 'link' or
+      'clone' above.
+
 Flags (link):
   --name <name>       Display name (default: basename of <path>).
   --server <url>      Bind to a server URL. Must match a row in
@@ -73,6 +78,8 @@ func runVaultCmd(args []string, stdout, stderr io.Writer) int {
 		return runVaultCloneCmd(args[1:], stdout, stderr)
 	case "sync":
 		return runVaultSyncCmd(args[1:], stdout, stderr)
+	case "manage":
+		return runVaultManageCmd(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Error: unknown vault subcommand %q\n\n", args[0])
 		fmt.Fprint(stderr, vaultUsage)
