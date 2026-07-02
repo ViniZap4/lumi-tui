@@ -16,6 +16,24 @@ func (m Model) updateTree(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateTreeSearch(msg)
 	}
 
+	// A prefix key (`g` or `z`) is pending: try to complete the chord.
+	// Unknown combos cancel the prefix and dispatch the key normally,
+	// so `g` followed by `j` still moves the cursor down.
+	if m.treePrefix != "" {
+		prefix := m.treePrefix
+		m.treePrefix = ""
+		switch prefix + msg.String() {
+		case "gg": // jump to top (vim/yazi)
+			m.cursor = 0
+			return m, nil
+		case "gh": // jump to vault root (yazi: g h → home)
+			return m, m.navigateTo(m.rootDir, 0)
+		case "zp": // toggle the preview column (session-only)
+			m.previewHidden = !m.previewHidden
+			return m, nil
+		}
+	}
+
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
@@ -37,22 +55,28 @@ func (m Model) updateTree(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor--
 		}
 	case "h":
+		// Yazi left: ascend to the parent folder. No-op at the vault
+		// root — the browser never escapes it.
 		if m.currentDir != m.rootDir {
-			m.currentDir = filepath.Dir(m.currentDir)
-			m.cursor = 0
-			return m, m.loadItems
+			return m, m.navigateTo(filepath.Dir(m.currentDir), 0)
 		}
 	case "l", "enter":
+		// Yazi right: descend into the folder under the cursor, or
+		// open the note (same as enter).
 		if m.cursor < len(m.items) {
 			item := m.items[m.cursor]
 			if item.IsFolder {
-				m.currentDir = item.Path
-				m.cursor = 0
-				return m, m.loadItems
+				return m, m.navigateTo(item.Path, 0)
 			} else if item.Note != nil {
 				m.openNote(item.Note)
 			}
 		}
+	case "H":
+		// History back — return to the previous folder + selection.
+		return m, m.historyBack()
+	case "L":
+		// History forward — undo the last `H`.
+		return m, m.historyForward()
 	case "n":
 		m.showInput = true
 		m.inputMode = "create"
@@ -124,8 +148,10 @@ func (m Model) updateTree(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		m.enterConfig()
 		return m, nil
-	case "g":
-		m.cursor = 0
+	case "g", "z":
+		// Start a multi-key chord: gg (top), gh (vault root), zp
+		// (preview toggle). Completed by the prefix handler above.
+		m.treePrefix = msg.String()
 	case "G":
 		if len(m.items) > 0 {
 			m.cursor = len(m.items) - 1

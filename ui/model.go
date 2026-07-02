@@ -108,6 +108,24 @@ type Model struct {
 	navDir    string
 	navItems  []Item
 
+	// Yazi-style navigation history (tree view). histBack holds the
+	// locations the user came from; histFwd holds locations they went
+	// "back" out of and can return to with `L`. Any fresh navigation
+	// clears histFwd — same contract as a browser. Both stacks are
+	// capped at navHistoryCap entries (see history.go).
+	histBack []navEntry
+	histFwd  []navEntry
+
+	// treePrefix holds a pending multi-key prefix in the tree view
+	// ("g" or "z"). Empty means no prefix is pending. The next key
+	// either completes a chord (gg / gh / zp) or cancels the prefix
+	// and dispatches normally.
+	treePrefix string
+
+	// previewHidden toggles the preview column off in the tree view
+	// (`zp`). Session-only by design — not persisted to config.
+	previewHidden bool
+
 	// Split view
 	splitMode string
 	splitNote *domain.Note

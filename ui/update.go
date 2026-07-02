@@ -58,6 +58,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case itemsLoadedMsg:
 		m.items = msg.items
+		// Clamp the cursor: a history jump (`H`/`L`) restores the
+		// selection index that was valid when the folder was last
+		// visited, but the folder may have shrunk since.
+		if m.cursor >= len(m.items) {
+			m.cursor = len(m.items) - 1
+			if m.cursor < 0 {
+				m.cursor = 0
+			}
+		}
 		// One-shot auto-open: if the user passed `lumi some/note.md`
 		// at the command line, find the matching item and jump into
 		// its Note view. Falls back to a direct disk read if for some

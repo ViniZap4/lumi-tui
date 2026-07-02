@@ -23,8 +23,11 @@ import (
 // Below 80 columns the parent column collapses to give the active list
 // and preview equal share. Below 50 columns the preview is hidden too;
 // the user gets a single-column file list that still works.
+//
+// The preview column can also be hidden explicitly with `zp` (yazi
+// parity); the freed width goes to the active list.
 func (m Model) renderTree() string {
-	leftWidth, centerWidth, rightWidth, sepWidth := treeColumnWidths(m.width)
+	leftWidth, centerWidth, rightWidth, sepWidth := treeColumnWidths(m.width, m.previewHidden)
 
 	var s strings.Builder
 
@@ -68,6 +71,18 @@ func (m Model) renderTree() string {
 		return s.String()
 	}
 
+	if rightWidth == 0 {
+		// Preview hidden (`zp`): parent breadcrumb + active list only.
+		columns := lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			m.renderParentCol(leftWidth, colHeight),
+			sep,
+			m.renderCenterCol(centerWidth, colHeight),
+		)
+		s.WriteString(columns)
+		return s.String()
+	}
+
 	columns := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		m.renderParentCol(leftWidth, colHeight),
@@ -83,17 +98,32 @@ func (m Model) renderTree() string {
 // treeColumnWidths returns (left, center, right, sepEach) for a given
 // terminal width. The function is the single source of truth for the
 // responsive layout breakpoints; callers stay declarative.
-func treeColumnWidths(total int) (left, center, right, sep int) {
+//
+// hidePreview forces right = 0 (the `zp` toggle); the reclaimed width
+// goes to the active list so long titles stop truncating.
+func treeColumnWidths(total int, hidePreview bool) (left, center, right, sep int) {
 	const sepEach = 3 // " │ "
 	switch {
 	case total < 50:
 		// Single column: just the center list.
 		return 0, total, 0, 0
 	case total < 80:
+		if hidePreview {
+			// Preview toggled off: single full-width list.
+			return 0, total, 0, 0
+		}
 		// Two columns: list + preview, even split.
 		right = (total - sepEach) / 2
 		center = total - sepEach - right
 		return 0, center, right, sepEach
+	case hidePreview:
+		// Preview toggled off: slim parent breadcrumb + wide list.
+		left = total * 18 / 100
+		if left < 14 {
+			left = 14
+		}
+		center = total - left - sepEach
+		return left, center, 0, sepEach
 	default:
 		// Three columns. Bias preview wider so notes have room to show.
 		left = total * 18 / 100
