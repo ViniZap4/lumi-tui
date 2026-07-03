@@ -38,6 +38,16 @@ Usage:
       locally. Use after 'lumi vault clone' to keep a vault in step.
       Without <path>, uses the registered vault's path.
 
+  lumi vault transfer <server-url>/<slug> <username> [--yes]
+      Hand vault ownership to another member. Owner-only; the target
+      must already be a member. Asks for interactive confirmation
+      unless --yes is passed (transfer is not casually reversible).
+
+  lumi vault copy <server-url>/<slug> <recipient-username>
+      Share an independent copy: the server forks the vault into a new
+      vault owned by the recipient. No live link — edits diverge
+      permanently. Requires the 'vault.export' capability.
+
   lumi vault manage
       Interactive TUI for managing registered vaults — open, unlink,
       sync, refresh. Adding new vaults still goes through 'link' or
@@ -78,6 +88,10 @@ func runVaultCmd(args []string, stdout, stderr io.Writer) int {
 		return runVaultCloneCmd(args[1:], stdout, stderr)
 	case "sync":
 		return runVaultSyncCmd(args[1:], stdout, stderr)
+	case "transfer":
+		return runVaultTransferCmd(args[1:], os.Stdin, stdout, stderr)
+	case "copy":
+		return runVaultCopyCmd(args[1:], stdout, stderr)
 	case "manage":
 		return runVaultManageCmd(args[1:], stdout, stderr)
 	default:

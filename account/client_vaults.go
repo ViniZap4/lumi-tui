@@ -2,6 +2,7 @@ package account
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -11,12 +12,36 @@ import (
 // server/internal/vaults/handlers.go's vaultDTO). Only the fields used
 // by `lumi vault clone` and the future TUI multi-vault surface are
 // captured here; the role/member arrays come from separate endpoints.
+//
+// v3 adds ownership (`owner_user_id`) and share-a-copy provenance
+// (`copied_from`). CopiedFrom is kept as raw JSON — the CLI only needs
+// to know whether provenance exists, and the server-side JSONB shape
+// may still grow fields.
 type RemoteVault struct {
-	ID        string `json:"id"`
-	Slug      string `json:"slug"`
-	Name      string `json:"name"`
-	CreatedBy string `json:"created_by"`
-	CreatedAt string `json:"created_at"`
+	ID          string          `json:"id"`
+	Slug        string          `json:"slug"`
+	Name        string          `json:"name"`
+	CreatedBy   string          `json:"created_by"`
+	CreatedAt   string          `json:"created_at"`
+	OwnerUserID string          `json:"owner_user_id"`
+	CopiedFrom  json.RawMessage `json:"copied_from,omitempty"`
+}
+
+// VaultMember mirrors one row of `GET /api/vaults/:vault/members`. Only
+// the fields the CLI needs (username → user_id resolution and display)
+// are captured.
+type VaultMember struct {
+	VaultID     string `json:"vault_id"`
+	UserID      string `json:"user_id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	RoleID      string `json:"role_id"`
+	RoleName    string `json:"role_name"`
+}
+
+// memberListResponse is the envelope returned by `GET /api/vaults/:vault/members`.
+type memberListResponse struct {
+	Members []VaultMember `json:"members"`
 }
 
 // vaultListResponse is the envelope returned by `GET /api/vaults`.
@@ -60,6 +85,58 @@ func (c *Client) ListVaults(ctx context.Context) ([]RemoteVault, error) {
 		return nil, err
 	}
 	return resp.Vaults, nil
+}
+
+// ListMembers pulls the member list of a vault. Requires a token; the
+// server gates the endpoint on vault visibility.
+func (c *Client) ListMembers(ctx context.Context, vaultID string) ([]VaultMember, error) {
+	if vaultID == "" {
+		return nil, fmt.Errorf("ListMembers: vaultID is required")
+	}
+	path := fmt.Sprintf("/api/vaults/%s/members", url.PathEscape(vaultID))
+	var resp memberListResponse
+	if err := c.do(ctx, "GET", path, nil, true, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Members, nil
+}
+
+// TransferOwnership calls `POST /api/vaults/:vault/transfer-ownership`.
+// Owner-only server-side (403 otherwise); the target must already be a
+// member (400 otherwise). Returns the updated vault DTO.
+func (c *Client) TransferOwnership(ctx context.Context, vaultID, userID string) (*RemoteVault, error) {
+	if vaultID == "" || userID == "" {
+		return nil, fmt.Errorf("TransferOwnership: vaultID and userID are required")
+	}
+	path := fmt.Sprintf("/api/vaults/%s/transfer-ownership", url.PathEscape(vaultID))
+	body := struct {
+		UserID string `json:"user_id"`
+	}{UserID: userID}
+	var resp RemoteVault
+	if err := c.do(ctx, "POST", path, body, true, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// CopyVault calls `POST /api/vaults/:vault/copies` — the v3 share-a-copy
+// endpoint (capability `vault.export`). The server forks the vault's
+// current FS state into a new vault owned by `recipientUsername`; no
+// membership or live link is created. Returns the fork's vault DTO.
+// Unknown recipients surface as *APIError with Code "recipient_not_found".
+func (c *Client) CopyVault(ctx context.Context, vaultID, recipientUsername string) (*RemoteVault, error) {
+	if vaultID == "" || recipientUsername == "" {
+		return nil, fmt.Errorf("CopyVault: vaultID and recipientUsername are required")
+	}
+	path := fmt.Sprintf("/api/vaults/%s/copies", url.PathEscape(vaultID))
+	body := struct {
+		RecipientUsername string `json:"recipient_username"`
+	}{RecipientUsername: recipientUsername}
+	var resp RemoteVault
+	if err := c.do(ctx, "POST", path, body, true, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
 
 // ListNotes pulls one page of notes from a vault. `limit` defaults to

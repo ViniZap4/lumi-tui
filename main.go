@@ -27,6 +27,8 @@ Usage:
   lumi vaults                list vaults from ~/.config/lumi/vaults.yaml (Phase 5)
   lumi vault link <path>     register a directory as a vault (Phase 5)
   lumi vault clone <url>/<slug> [<path>]   pull a server vault locally (Phase 5)
+  lumi vault transfer <url>/<slug> <username>   hand vault ownership to a member (v3)
+  lumi vault copy <url>/<slug> <recipient>      share an independent copy (v3)
   lumi --help, -h            show this help
   lumi --version, -v         print version
 
