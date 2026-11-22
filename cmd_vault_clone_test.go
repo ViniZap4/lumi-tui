@@ -97,9 +97,9 @@ func TestParseCloneArgs(t *testing.T) {
 
 func TestSplitServerAndSlug(t *testing.T) {
 	cases := map[string][2]string{
-		"https://lumi.work.com/work":             {"https://lumi.work.com", "work"},
-		"http://localhost:8080/personal":         {"http://localhost:8080", "personal"},
-		"https://lumi.work.com/api/path/myslug":  {"https://lumi.work.com/api/path", "myslug"},
+		"https://lumi.work.com/work":            {"https://lumi.work.com", "work"},
+		"http://localhost:8080/personal":        {"http://localhost:8080", "personal"},
+		"https://lumi.work.com/api/path/myslug": {"https://lumi.work.com/api/path", "myslug"},
 	}
 	for in, want := range cases {
 		s, sl, err := splitServerAndSlug(in)

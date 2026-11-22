@@ -11,12 +11,12 @@ func seedVaults(t *testing.T, path string) {
 	now := time.Date(2026, 5, 25, 12, 0, 0, 0, time.UTC)
 	entries := []VaultEntry{
 		{
-			ID: "aaaaaaaa-0000-4000-8000-000000000000",
+			ID:   "aaaaaaaa-0000-4000-8000-000000000000",
 			Name: "Work", Path: "/home/u/work", RawPath: "/home/u/work",
 			AddedAt: now,
 		},
 		{
-			ID: "bbbbbbbb-0000-4000-8000-000000000000",
+			ID:   "bbbbbbbb-0000-4000-8000-000000000000",
 			Name: "Personal", Path: "/home/u/personal", RawPath: "/home/u/personal",
 			AddedAt: now.Add(-time.Hour),
 		},
@@ -177,14 +177,14 @@ func TestBumpLastOpenedAtEmptyRegistry(t *testing.T) {
 
 func TestIsLikelyUUID(t *testing.T) {
 	cases := map[string]bool{
-		"":                                          false,
-		"foo":                                       false,
-		"aaaaaaaa-0000-4000-8000-000000000000":     true,
-		"AAAAAAAA-0000-4000-8000-000000000000":     false, // lowercase only
-		"aaaaaaaa-0000-4000-8000-00000000000":      false, // too short
-		"aaaaaaaa-0000-4000-8000-0000000000000":    false, // too long
-		"aaaaaaaa00000400080000000000000000000":    false, // missing dashes
-		"gggggggg-0000-4000-8000-000000000000":     false, // non-hex
+		"":                                      false,
+		"foo":                                   false,
+		"aaaaaaaa-0000-4000-8000-000000000000":  true,
+		"AAAAAAAA-0000-4000-8000-000000000000":  false, // lowercase only
+		"aaaaaaaa-0000-4000-8000-00000000000":   false, // too short
+		"aaaaaaaa-0000-4000-8000-0000000000000": false, // too long
+		"aaaaaaaa00000400080000000000000000000": false, // missing dashes
+		"gggggggg-0000-4000-8000-000000000000":  false, // non-hex
 	}
 	for in, want := range cases {
 		if got := isLikelyUUID(in); got != want {

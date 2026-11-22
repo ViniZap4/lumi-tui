@@ -40,7 +40,7 @@ func detectRenderer() {
 		term := os.Getenv("TERM")
 		termProgram := os.Getenv("TERM_PROGRAM")
 		kittyWindowID := os.Getenv("KITTY_WINDOW_ID")
-		lcTerminal := os.Getenv("LC_TERMINAL")       // Persists inside tmux (set by iTerm2)
+		lcTerminal := os.Getenv("LC_TERMINAL")        // Persists inside tmux (set by iTerm2)
 		weztermExe := os.Getenv("WEZTERM_EXECUTABLE") // Persists inside tmux (set by WezTerm)
 
 		// Direct detection (works outside tmux, sometimes inside)

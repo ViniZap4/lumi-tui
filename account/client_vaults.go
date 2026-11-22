@@ -73,9 +73,9 @@ type noteListResponse struct {
 // for forward-compat but ignored by clone. `Path` lets the caller
 // double-check the on-disk write target.
 type NoteContent struct {
-	ID    string `json:"id"`
-	Path  string `json:"path"`
-	Body  string `json:"body"`
+	ID   string `json:"id"`
+	Path string `json:"path"`
+	Body string `json:"body"`
 }
 
 // ListVaults pulls the vault list visible to the signed-in user.

@@ -146,11 +146,11 @@ func TestRunVaultUnlinkHelp(t *testing.T) {
 
 func TestLooksLikeUUID(t *testing.T) {
 	cases := map[string]bool{
-		"":                                       false,
-		"aaaaaaaa-0000-4000-8000-000000000000":  true,
-		"AAAAAAAA-0000-4000-8000-000000000000":  true, // case-insensitive
-		"not-a-uuid":                             false,
-		"aaaaaaaa-0000-4000-8000":                false,
+		"":                                     false,
+		"aaaaaaaa-0000-4000-8000-000000000000": true,
+		"AAAAAAAA-0000-4000-8000-000000000000": true, // case-insensitive
+		"not-a-uuid":                           false,
+		"aaaaaaaa-0000-4000-8000":              false,
 	}
 	for in, want := range cases {
 		if got := looksLikeUUID(in); got != want {

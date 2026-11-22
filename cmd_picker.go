@@ -137,4 +137,3 @@ func shouldRunVaultPicker(splash bool, initialNote string, numVaults int) bool {
 	}
 	return numVaults > 0
 }
-

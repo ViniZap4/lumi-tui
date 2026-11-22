@@ -53,10 +53,10 @@ func TestVaultPickerNavigation(t *testing.T) {
 	}
 
 	steps := []struct {
-		key       string
-		want      int
-		desc      string
-		boundary  bool // true when this step is expected to clamp without moving
+		key      string
+		want     int
+		desc     string
+		boundary bool // true when this step is expected to clamp without moving
 	}{
 		{"k", 0, "up at top stays at 0", true},
 		{"up", 0, "up at top stays at 0", true},
