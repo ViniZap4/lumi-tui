@@ -36,17 +36,30 @@ type CatchUpResult struct {
 //     every note, applies them, deletes clean notes the server no longer
 //     has, and sets cursor = that head; changes that land in between come
 //     back in the next `changes` call.
+//
+// This form never pushes: dirty notes are reported and left alone, and no
+// bases are stored. The feed manager uses Syncer.CatchUp.
 func CatchUp(ctx context.Context, api ChangesAPI, vaultID, root string, cache *BookCache) (CatchUpResult, error) {
+	s := &Syncer{API: pullOnly{api}, VaultID: vaultID, Root: root, Cache: cache, NoPush: true}
+	return s.CatchUp(ctx, api)
+}
+
+// pullOnly adapts a ChangesAPI that cannot push.
+type pullOnly struct{ ChangesAPI }
+
+func (pullOnly) PushEdit(context.Context, string, string, account.EditBase, string) (*account.NoteSnapshot, error) {
+	return nil, errors.New("push not supported")
+}
+
+// CatchUp is CatchUp with this syncer's bases and push policy: clean
+// notes are pulled and their snapshot stored as base; dirty notes the
+// server also changed are merged (Syncer.Push) unless NoPush.
+func (s *Syncer) CatchUp(ctx context.Context, api ChangesAPI) (CatchUpResult, error) {
 	var res CatchUpResult
 	var m *Mirror
-	if root != "" {
-		m = &Mirror{Root: root, Cache: cache, FetchText: func(ctx context.Context, id string) (string, error) {
-			snap, err := api.GetNoteSnapshot(ctx, vaultID, id)
-			if err != nil {
-				return "", err
-			}
-			return snap.Text, nil
-		}}
+	vaultID, cache := s.VaultID, s.Cache
+	if s.Root != "" {
+		m = &Mirror{Syncer: s}
 	}
 	resyncs := 0
 	for {

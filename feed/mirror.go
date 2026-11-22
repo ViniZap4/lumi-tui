@@ -19,16 +19,16 @@ import (
 // not dirty").
 //
 // Dirty rule: a local file is clean only when its current body hashes to
-// what this client last wrote (BookCache.Notes). A file with no record is
-// treated as dirty unless its body already equals the server text — so
-// the first catch-up after a clone never clobbers anything. Dirty notes
-// are reported and left alone; pushing them is `lumi vault sync` (and,
-// later, the 3-way merge of CRDT-CLIENT-PROTOCOL §7.1).
+// what this client last synced (BookCache.Notes). Clean notes are
+// overwritten with the server text and that snapshot becomes their base.
+// A dirty note whose server text also changed is merged through
+// Syncer.Push (3-way on the server, or "keep both" when there is no
+// usable base) — unless NoPush is set, in which case it is reported and
+// left alone. A file with no record is dirty unless its body already
+// equals the server text, so the first catch-up after a clone never
+// clobbers anything.
 type Mirror struct {
-	Root  string
-	Cache *BookCache
-	// FetchText returns the current server body of a note.
-	FetchText func(ctx context.Context, noteID string) (string, error)
+	*Syncer
 
 	index map[string]string // note id -> absolute path
 }
@@ -36,7 +36,16 @@ type Mirror struct {
 // MirrorStats summarises one apply pass.
 type MirrorStats struct {
 	Written, Deleted, Moved int
+	Merged                  int      // dirty notes merged with the server (3-way)
 	Dirty                   []string // relative paths left alone
+	Conflicts               []Conflict
+	Errors                  []string // per-note push failures (note left dirty)
+}
+
+// Conflict is a note whose local version had to be set aside.
+type Conflict struct {
+	Path string // the note (now holding the server text)
+	Copy string // the saved local version
 }
 
 // Changed reports whether any file was touched.
@@ -83,11 +92,6 @@ func safeRel(p string) (string, error) {
 	return clean, nil
 }
 
-func (m *Mirror) isClean(id string, n *domain.Note) bool {
-	rec, ok := m.Cache.Notes[id]
-	return ok && rec.Hash == BodyHash(n.Content)
-}
-
 // ApplyNote brings one changed note into the folder.
 func (m *Mirror) ApplyNote(ctx context.Context, rn account.RemoteNote, st *MirrorStats) error {
 	m.buildIndex()
@@ -102,23 +106,51 @@ func (m *Mirror) ApplyNote(ctx context.Context, rn account.RemoteNote, st *Mirro
 		local, _ = filesystem.ReadNote(localPath)
 		exists = local != nil
 	}
-	if exists && !m.isClean(rn.ID, local) {
-		text, err := m.FetchText(ctx, rn.ID)
+	if exists && !m.IsClean(rn.ID, local) {
+		snap, err := m.fetch(ctx, rn.ID)
 		if err != nil {
 			return err
 		}
-		if strings.TrimSpace(text) != strings.TrimSpace(local.Content) {
+		if sameBody(snap.Text, local.Content) {
+			// Same text, no record: adopt it as clean.
+			return m.Record(rn.ID, localPath, snap)
+		}
+		if rec, ok := m.Cache.Notes[rn.ID]; ok && rec.Hash == BodyHash(snap.Text) {
+			// Only the local side changed: nothing to pull. Pushing it is
+			// the pending flush's job, not the mirror's.
+			if m.NoPush {
+				st.Dirty = append(st.Dirty, relOrSelf(m.Root, localPath))
+			}
+			return nil
+		}
+		if m.NoPush {
 			st.Dirty = append(st.Dirty, relOrSelf(m.Root, localPath))
 			return nil
 		}
-		// Same text, no record: adopt it as clean.
-		m.Cache.Notes[rn.ID] = NoteEntry{Path: relOrSelf(m.Root, localPath), Hash: BodyHash(text)}
+		res, err := m.Push(ctx, localPath)
+		if err != nil {
+			if isNetworkErr(err) || ctx.Err() != nil {
+				return err
+			}
+			st.Dirty = append(st.Dirty, relOrSelf(m.Root, localPath))
+			st.Errors = append(st.Errors, relOrSelf(m.Root, localPath)+": "+err.Error())
+			return nil
+		}
+		switch res.Outcome {
+		case PushMerged:
+			st.Written++
+			st.Merged++
+		case PushConflict:
+			st.Written++
+			st.Conflicts = append(st.Conflicts, Conflict{Path: res.Path, Copy: res.ConflictPath})
+		}
 		return nil
 	}
-	text, err := m.FetchText(ctx, rn.ID)
+	snap, err := m.fetch(ctx, rn.ID)
 	if err != nil {
 		return err
 	}
+	text := snap.Text
 	if exists {
 		if localPath != dest {
 			if _, err := os.Stat(dest); err == nil {
@@ -164,9 +196,8 @@ func (m *Mirror) ApplyNote(ctx context.Context, rn account.RemoteNote, st *Mirro
 		}
 	}
 	m.index[rn.ID] = dest
-	m.Cache.Notes[rn.ID] = NoteEntry{Path: relOrSelf(m.Root, dest), Hash: BodyHash(text)}
 	st.Written++
-	return nil
+	return m.Record(rn.ID, dest, snap)
 }
 
 // ApplyDelete removes a tombstoned note when it is clean.
@@ -174,25 +205,22 @@ func (m *Mirror) ApplyDelete(id string, st *MirrorStats) error {
 	m.buildIndex()
 	p, ok := m.index[id]
 	if !ok {
-		delete(m.Cache.Notes, id)
-		return nil
+		return m.Forget(id)
 	}
 	n, _ := filesystem.ReadNote(p)
 	if n == nil {
 		return nil
 	}
-	if !m.isClean(id, n) {
+	if !m.IsClean(id, n) {
 		st.Dirty = append(st.Dirty, relOrSelf(m.Root, p))
-		delete(m.Cache.Notes, id) // now a local-only note
-		return nil
+		return m.Forget(id) // now a local-only note
 	}
 	if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	delete(m.index, id)
-	delete(m.Cache.Notes, id)
 	st.Deleted++
-	return nil
+	return m.Forget(id)
 }
 
 func relOrSelf(root, p string) string {
