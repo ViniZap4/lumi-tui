@@ -18,7 +18,7 @@ func TestPushEditSendsTextBaseStateOrigin(t *testing.T) {
 		}
 		raw, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(raw, &got)
-		_, _ = w.Write([]byte(`{"id":"n1","path":"n1.md","text":"merged","vector_clock":"c2"}`))
+		_, _ = w.Write([]byte(`{"id":"n1","path":"n1.md","text":"merged","vector_clock":"c2","state":"TUVSR0VE"}`))
 	}))
 	defer srv.Close()
 	c, _ := NewClient(srv.URL)
@@ -27,7 +27,7 @@ func TestPushEditSendsTextBaseStateOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snap.Text != "merged" || snap.VectorClock != "c2" {
+	if snap.Text != "merged" || snap.VectorClock != "c2" || snap.State != "TUVSR0VE" {
 		t.Fatalf("snap = %+v", snap)
 	}
 	if got["text"] != "edited" || got["base_state"] != "U1RBVEU=" || got["origin"] != "tui" {
@@ -55,7 +55,7 @@ func TestPushEditMaps409s(t *testing.T) {
 	for _, tc := range []struct {
 		code string
 		want error
-	}{{"base_required", ErrBaseRequired}, {"base_mismatch", ErrBaseMismatch}} {
+	}{{"base_required", ErrBaseRequired}, {"base_mismatch", ErrBaseMismatch}, {"base_too_old", ErrBaseTooOld}} {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusConflict)
 			_, _ = w.Write([]byte(`{"error":"` + tc.code + `","detail":"d"}`))

@@ -36,10 +36,17 @@ var ErrBaseRequired = errors.New("base_required")
 // switched replica). The caller must re-pull before pushing again.
 var ErrBaseMismatch = errors.New("base_mismatch")
 
-// IsBaseConflict reports whether err is one of the two 409s that mean
+// ErrBaseTooOld is returned by PushEdit on 409 base_too_old: the server
+// can no longer reconstruct the base state (history compacted). Like
+// ErrBaseMismatch, the caller must re-pull the snapshot and redo the
+// edit on it.
+var ErrBaseTooOld = errors.New("base_too_old")
+
+// IsBaseConflict reports whether err is one of the 409s that mean
 // "re-pull the snapshot before pushing again".
 func IsBaseConflict(err error) bool {
-	return errors.Is(err, ErrBaseRequired) || errors.Is(err, ErrBaseMismatch)
+	return errors.Is(err, ErrBaseRequired) || errors.Is(err, ErrBaseMismatch) ||
+		errors.Is(err, ErrBaseTooOld)
 }
 
 // baseConflictError keeps the server's *APIError reachable (errors.As)
@@ -76,11 +83,13 @@ type pushEditRequest struct {
 // It sends POST /diff {text, base_state, origin: "tui"}: the server does
 // the 3-way merge of CRDT-CLIENT-PROTOCOL §7.1 steps 4–6 itself (§7.2,
 // §10 S1), so the TUI needs no CRDT library. The returned snapshot holds
-// the merged text and new vector clock (the server's /diff reply carries
-// no `state`; callers re-fetch GET /snapshot for the next base).
+// the merged text, the new vector clock and — on current servers — the
+// merged `state`, which is the next base as is. Older servers omit
+// `state`; callers then re-fetch GET /snapshot for the next base.
 //
-// 409 base_required / base_mismatch come back as ErrBaseRequired /
-// ErrBaseMismatch. A base without State never reaches the wire.
+// 409 base_required / base_mismatch / base_too_old come back as
+// ErrBaseRequired / ErrBaseMismatch / ErrBaseTooOld. A base without State
+// never reaches the wire.
 func (c *Client) PushEdit(ctx context.Context, vaultID, noteID string, base EditBase, edited string) (*NoteSnapshot, error) {
 	if vaultID == "" || noteID == "" {
 		return nil, fmt.Errorf("PushEdit: vaultID and noteID are required")
@@ -99,6 +108,8 @@ func (c *Client) PushEdit(ctx context.Context, vaultID, noteID string, base Edit
 			return nil, &baseConflictError{sentinel: ErrBaseRequired, api: apiErr}
 		case "base_mismatch":
 			return nil, &baseConflictError{sentinel: ErrBaseMismatch, api: apiErr}
+		case "base_too_old":
+			return nil, &baseConflictError{sentinel: ErrBaseTooOld, api: apiErr}
 		}
 	}
 	if err != nil {
