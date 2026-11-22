@@ -578,3 +578,6 @@ func cleanPath(p string) string {
 	}
 	return c
 }
+
+// SameDir reports whether two folder paths resolve to the same directory.
+func SameDir(a, b string) bool { return cleanPath(a) == cleanPath(b) }

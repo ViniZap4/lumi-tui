@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/vinizap/lumi/tui-client/account"
+	"github.com/vinizap/lumi/tui-client/books"
 )
 
 // cloneOpts captures parsed flags + positional args for `lumi vault clone`.
@@ -279,6 +280,9 @@ func runVaultCloneCmd(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	fmt.Fprintf(stdout, "Registered %q at %s.\n", displayName, absTarget)
+	updateBooks(stderr, func(reg *books.Registry) bool {
+		return registerClonedBook(reg, opts.Server, acc.Username, vault.ID, displayName, absTarget)
+	})
 	return 0
 }
 

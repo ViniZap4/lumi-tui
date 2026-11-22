@@ -23,8 +23,9 @@ Usage:
   lumi <directory>           open a directory of .md files (lumi-managed or plain)
   lumi <file.md>             open a single .md file (parent dir becomes the workspace)
   lumi login <server-url>    sign in to a lumi-server v2 instance (Phase 5)
-  lumi accounts [--verify]   list signed-in servers (Phase 5)
-  lumi vaults                list vaults from ~/.config/lumi/vaults.yaml (Phase 5)
+  lumi accounts [--verify]   list signed-in accounts (several per server)
+  lumi books [list|refresh|link|unlink|rename|use]   manage books (livros)
+  lumi vaults                alias of 'lumi books list'
   lumi vault link <path>     register a directory as a vault (Phase 5)
   lumi vault clone <url>/<slug> [<path>]   pull a server vault locally (Phase 5)
   lumi vault transfer <url>/<slug> <username>   hand vault ownership to a member (v3)
@@ -46,8 +47,11 @@ func main() {
 			os.Exit(runLoginCmd(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 		case "accounts":
 			os.Exit(runAccountsCmd(os.Args[2:], os.Stdout, os.Stderr))
+		case "books", "livros":
+			os.Exit(runBooksCmd(os.Args[2:], os.Stdout, os.Stderr))
 		case "vaults":
-			os.Exit(runVaultsCmd(os.Args[2:], os.Stdout, os.Stderr))
+			// SPEC-LIVROS §6 T2: `lumi vaults` is an alias of `lumi books list`.
+			os.Exit(runBooksCmd(append([]string{"list"}, os.Args[2:]...), os.Stdout, os.Stderr))
 		case "vault":
 			os.Exit(runVaultCmd(os.Args[2:], os.Stdout, os.Stderr))
 		}

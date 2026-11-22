@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -47,6 +48,11 @@ type APIError struct {
 	Status int
 	Code   string
 	Detail string
+	// Raw is the undecoded response body, for endpoints whose error
+	// envelope carries extra fields (e.g. `head` on 410 resync_required).
+	Raw []byte
+	// RetryAfter is the parsed Retry-After header, when present.
+	RetryAfter time.Duration
 }
 
 func (e *APIError) Error() string {
@@ -197,7 +203,8 @@ func (c *Client) do(ctx context.Context, method, path string, body any, requireT
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var env errorEnvelope
 		_ = json.Unmarshal(respBytes, &env)
-		return &APIError{Status: resp.StatusCode, Code: env.Error, Detail: env.Detail}
+		return &APIError{Status: resp.StatusCode, Code: env.Error, Detail: env.Detail, Raw: respBytes,
+			RetryAfter: ParseRetryAfter(resp.Header.Get("Retry-After"), time.Now())}
 	}
 
 	if out == nil || len(respBytes) == 0 {
@@ -222,3 +229,25 @@ func singleJoinPath(base, suffix string) string {
 	}
 	return base + suffix
 }
+
+// ParseRetryAfter decodes a Retry-After header (delta-seconds or an
+// HTTP-date). Returns 0 when absent or unparseable.
+func ParseRetryAfter(v string, now time.Time) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(v); err == nil && secs >= 0 {
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(v); err == nil && t.After(now) {
+		return t.Sub(now)
+	}
+	return 0
+}
+
+// Token returns the token attached to the client ("" when none).
+func (c *Client) Token() string { return c.token }
+
+// HTTPClient returns the underlying http.Client.
+func (c *Client) HTTPClient() *http.Client { return c.http }

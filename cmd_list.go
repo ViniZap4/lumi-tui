@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"sort"
 	"time"
 
 	"github.com/vinizap/lumi/tui-client/account"
@@ -17,21 +16,11 @@ const accountsUsage = `lumi accounts — list signed-in servers
 Usage:
   lumi accounts
 
-  Lists every server you've signed in to (one row per server URL).
+  Lists every account you've signed in to (server + username; a server
+  may have several).
   Token validity is checked lazily on use; this command does NOT call
   the server. Use 'lumi accounts --verify' to actively probe each
   server's /api/users/me endpoint.
-`
-
-const vaultsUsage = `lumi vaults — list known vaults from ~/.config/lumi/vaults.yaml
-
-Usage:
-  lumi vaults
-
-  Lists every vault recorded in the shared registry written by
-  lumi-apple (or by a future 'lumi vault link' subcommand). This is the
-  cross-client list of vault locations — local-only vaults are shown
-  alongside server-bound ones.
 `
 
 // runAccountsCmd implements `lumi accounts`. Lists every signed-in server.
@@ -114,69 +103,6 @@ func verifyAccount(a account.Account) (bool, string) {
 		return false, err.Error()
 	}
 	return true, ""
-}
-
-// runVaultsCmd implements `lumi vaults`. Reads ~/.config/lumi/vaults.yaml
-// and prints each known vault.
-func runVaultsCmd(args []string, stdout, stderr io.Writer) int {
-	for _, a := range args {
-		switch a {
-		case "--help", "-h":
-			fmt.Fprint(stdout, vaultsUsage)
-			return 0
-		default:
-			fmt.Fprintf(stderr, "Error: unknown flag %q\n\n", a)
-			fmt.Fprint(stderr, vaultsUsage)
-			return 64
-		}
-	}
-
-	entries, err := account.LoadVaults()
-	if err != nil {
-		fmt.Fprintf(stderr, "Error reading vaults file: %v\n", err)
-		return 1
-	}
-	if len(entries) == 0 {
-		path, _ := account.VaultsPath()
-		fmt.Fprintf(stdout, "No vaults recorded. The shared vaults.yaml is empty or missing.\n(file: %s)\n", path)
-		fmt.Fprintf(stdout, "lumi-apple writes to this file; the TUI gains an upserter in a later slice.\n")
-		return 0
-	}
-	// Stable + already sorted newest-first by the loader; secondary sort by
-	// name for ties so the output is deterministic across runs.
-	sort.SliceStable(entries, func(i, j int) bool {
-		// Preserve loader's lastOpened/added ordering; only break ties by name.
-		ki := entries[i].LastOpenedAt
-		if ki.IsZero() {
-			ki = entries[i].AddedAt
-		}
-		kj := entries[j].LastOpenedAt
-		if kj.IsZero() {
-			kj = entries[j].AddedAt
-		}
-		if !ki.Equal(kj) {
-			return ki.After(kj)
-		}
-		return entries[i].Name < entries[j].Name
-	})
-
-	for _, v := range entries {
-		bind := "local"
-		if v.IsServerBound() {
-			bind = v.Server
-			if v.Account != "" {
-				bind = v.Account + "@" + redactURLPath(v.Server)
-			}
-		}
-		fmt.Fprintf(stdout, "%-30s  %s\n", v.Name, bind)
-		fmt.Fprintf(stdout, "  path: %s\n", v.Path)
-		if !v.LastOpenedAt.IsZero() {
-			fmt.Fprintf(stdout, "  last opened: %s\n", v.LastOpenedAt.Format(time.RFC3339))
-		} else {
-			fmt.Fprintf(stdout, "  added: %s (never opened)\n", v.AddedAt.Format(time.RFC3339))
-		}
-	}
-	return 0
 }
 
 // truncateMiddle compresses long strings with `…` for column alignment.

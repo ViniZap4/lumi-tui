@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/vinizap/lumi/tui-client/account"
+	"github.com/vinizap/lumi/tui-client/books"
 )
 
 const vaultUsage = `lumi vault — manage vault registry entries
@@ -255,6 +256,23 @@ func runVaultLinkCmd(args []string, stdout, stderr io.Writer) int {
 			bind = opts.Account + "@" + opts.Server
 		}
 	}
+	updateBooks(stderr, func(reg *books.Registry) bool {
+		if reg.ByPath(abs) != nil {
+			return false
+		}
+		b := books.Book{ID: id, Name: name, Kind: books.KindLocal, Path: books.EncodeHome(abs)}
+		if opts.Server != "" {
+			// No vault_id yet: shows as "ligação incompleta" until
+			// 'lumi books link <path> --server' resolves it.
+			b.Kind, b.ServerURL, b.Account = books.KindBound, opts.Server, opts.Account
+			if n, err := account.NormalizeServerURL(opts.Server); err == nil {
+				b.ServerURL = n
+			}
+			b.VaultID = books.ReadFolderVaultID(abs)
+		}
+		_, err := reg.Add(b)
+		return err == nil
+	})
 	fmt.Fprintf(stdout, "Linked vault %q (%s) at %s\n", name, bind, abs)
 	return 0
 }
@@ -300,6 +318,7 @@ func runVaultUnlinkCmd(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "No vault with id %q found in vaults.yaml.\n", target)
 			return 2
 		}
+		updateBooks(stderr, func(reg *books.Registry) bool { return reg.Remove(target) })
 		fmt.Fprintf(stdout, "Unlinked vault %s (%d remaining).\n", target, len(remaining))
 		return 0
 	}
@@ -318,6 +337,12 @@ func runVaultUnlinkCmd(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "No vault registered at %q.\n", abs)
 		return 2
 	}
+	updateBooks(stderr, func(reg *books.Registry) bool {
+		if b := reg.ByPath(abs); b != nil {
+			return reg.Remove(b.ID)
+		}
+		return false
+	})
 	fmt.Fprintf(stdout, "Unlinked vault at %s (%d remaining).\n", abs, len(remaining))
 	return 0
 }

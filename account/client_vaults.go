@@ -25,6 +25,13 @@ type RemoteVault struct {
 	CreatedAt   string          `json:"created_at"`
 	OwnerUserID string          `json:"owner_user_id"`
 	CopiedFrom  json.RawMessage `json:"copied_from,omitempty"`
+
+	// SPEC-LIVROS §3.5 additions. Zero values when the server predates
+	// wave 2.
+	Head       int64       `json:"head"`
+	Role       string      `json:"role"`
+	CanEdit    *bool       `json:"can_edit,omitempty"`
+	Federation *Federation `json:"federation,omitempty"`
 }
 
 // VaultMember mirrors one row of `GET /api/vaults/:vault/members`. Only
