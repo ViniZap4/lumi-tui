@@ -321,6 +321,7 @@ func (m *Model) toggleCheckbox() bool {
 	// Persist to disk
 	m.fullNote.Content = strings.Join(m.contentLines, "\n")
 	filesystem.WriteNote(m.fullNote)
+	m.localEdit()
 
 	return true
 }
@@ -616,6 +617,7 @@ func (m *Model) insertLinkToNote(target *domain.Note) {
 	// Save to disk
 	m.fullNote.Content = strings.Join(m.contentLines, "\n")
 	filesystem.WriteNote(m.fullNote)
+	m.localEdit()
 
 	m.statusMsg = "Link inserted"
 }

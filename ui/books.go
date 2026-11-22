@@ -63,6 +63,23 @@ func (m Model) onBooksChanged() (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+// localEdit tells the feed manager a note in the active book changed on
+// disk, so it is pushed (3-way) right away when online, or counted as
+// pending when not.
+func (m *Model) localEdit() {
+	if m.bookMgr != nil && m.activeBookID != "" {
+		go m.bookMgr.LocalEdit(m.activeBookID)
+	}
+}
+
+// pendingLabel is "1 pendente" / "N pendentes".
+func pendingLabel(n int) string {
+	if n == 1 {
+		return "1 pendente"
+	}
+	return fmt.Sprintf("%d pendentes", n)
+}
+
 // openBooksPicker shows the `gb` picker with the cursor on the active book.
 func (m *Model) openBooksPicker() {
 	if m.bookMgr == nil {
@@ -164,8 +181,11 @@ func (m Model) renderBookSegment() string {
 		return ""
 	}
 	st := v.Status.State
-	return lipgloss.NewStyle().Foreground(stateColor(st)).Render(st.Glyph()+" "+st.Label()) +
-		lipgloss.NewStyle().Foreground(mutedColor).Render("  "+truncate(v.Book.Name, 24))
+	seg := lipgloss.NewStyle().Foreground(stateColor(st)).Render(st.Glyph() + " " + st.Label())
+	if n := len(v.Pending); n > 0 {
+		seg += lipgloss.NewStyle().Foreground(theme.Current.Warning).Render(" · " + pendingLabel(n))
+	}
+	return seg + lipgloss.NewStyle().Foreground(mutedColor).Render("  "+truncate(v.Book.Name, 24))
 }
 
 func (m Model) modalBox(title, body string, width int) string {
@@ -276,8 +296,29 @@ func (m Model) renderBookDetails() string {
 		}
 		s.WriteString(row(label, a.Account+"@"+books.Host(a.ServerURL)))
 	}
+	if n := len(v.Pending); n > 0 {
+		hint := "enviadas quando voltar a conexão"
+		if st != books.StateOffline {
+			hint = "enviando"
+		}
+		s.WriteString(row("pendentes", fmt.Sprintf("%s — %s", pendingLabel(n), hint)))
+		for i, p := range v.Pending {
+			if i == 3 {
+				s.WriteString(row("", fmt.Sprintf("… e mais %d", n-3)))
+				break
+			}
+			s.WriteString(row("", truncate(p, 48)))
+		}
+	}
 	if len(v.Dirty) > 0 {
-		s.WriteString(row("não enviadas", fmt.Sprintf("%d nota(s) — lumi vault sync", len(v.Dirty))))
+		s.WriteString(row("não enviadas", fmt.Sprintf("%d nota(s) — livro somente leitura", len(v.Dirty))))
+	}
+	for i, c := range v.Conflicts {
+		label := ""
+		if i == 0 {
+			label = "conflitos"
+		}
+		s.WriteString(row(label, truncate(c.Path+" → sua versão em "+c.Copy, 48)))
 	}
 	for i, e := range v.Errors {
 		label := ""

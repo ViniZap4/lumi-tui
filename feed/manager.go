@@ -59,6 +59,8 @@ type bookInfo struct {
 	lastSynced time.Time
 	errs       []string
 	dirty      []string
+	pending    []string // notes modified since their base, not yet pushed
+	conflicts  []Conflict
 	running    bool
 	again      bool
 	mirrorGen  uint64
@@ -76,8 +78,13 @@ type BookView struct {
 	Head       int64
 	LastSynced time.Time
 	Errors     []string // last 5
-	Dirty      []string // notes the mirror left alone
-	MirrorGen  uint64   // bumps whenever the mirror changed files
+	Dirty      []string // notes the mirror left alone (read-only books)
+	// Pending lists notes modified since their base and not yet pushed
+	// (SPEC-LIVROS §4.2 "pendente"; CRDT-CLIENT-PROTOCOL §7.1). Offline,
+	// nothing is queued: this is what the status line counts.
+	Pending   []string
+	Conflicts []Conflict // last pushes that had to keep both versions
+	MirrorGen uint64     // bumps whenever the mirror changed files
 }
 
 // NewManager builds a manager over a loaded registry and accounts.
@@ -181,6 +188,7 @@ func (m *Manager) infoLocked(b books.Book) *bookInfo {
 			c := LoadCache(m.cacheDir, b.ID, b.VaultID, b.ServerURL)
 			bi.catchUp.Cursor = c.Cursor
 			bi.lastSynced = c.LastSyncedAt
+			bi.pending = (&Syncer{Root: bookRoot(b), Cache: c}).Pending()
 		}
 		m.bstate[b.ID] = bi
 	}
@@ -205,12 +213,14 @@ func (m *Manager) View(bookID string) (BookView, bool) {
 		return BookView{}, false
 	}
 	bi := m.infoLocked(*b)
-	// Editor stays zero (closed, nothing pending): the TUI has no live
-	// CRDT session, and "pending" needs the .base push of
-	// CRDT-CLIENT-PROTOCOL §7.1 — see the TODO on account.PushEdit.
-	in := books.StatusInput{Book: *b, Revoked: bi.revoked, RevokeReason: bi.reason, CanEdit: bi.canEdit, CatchUp: bi.catchUp}
+	// The TUI has no live CRDT session (editor closed); "pending" is the
+	// set of notes modified since their base whose push has not returned
+	// 2xx (SPEC-LIVROS §4.2, CRDT-CLIENT-PROTOCOL §7.1).
+	in := books.StatusInput{Book: *b, Revoked: bi.revoked, RevokeReason: bi.reason, CanEdit: bi.canEdit, CatchUp: bi.catchUp,
+		Editor: books.Editor{Pending: len(bi.pending) > 0}}
 	v := BookView{Book: *b, Role: bi.role, Cursor: bi.catchUp.Cursor, Head: bi.catchUp.Head,
 		LastSynced: bi.lastSynced, Errors: append([]string(nil), bi.errs...), Dirty: append([]string(nil), bi.dirty...),
+		Pending: append([]string(nil), bi.pending...), Conflicts: append([]Conflict(nil), bi.conflicts...),
 		MirrorGen: bi.mirrorGen}
 	if a, ok := m.accountFor(*b); ok {
 		in.HasAccount = true
@@ -276,7 +286,9 @@ func (m *Manager) handle(a account.Account, u Update) {
 			bi.revoked, bi.reason = false, ""
 			bi.canEdit, bi.role = hv.CanEdit, hv.Role
 			bi.catchUp.Head = hv.Seq
-			if hv.Seq > bi.catchUp.Cursor || bi.catchUp.Phase == books.CatchUpFailed {
+			// Pending local edits (made offline) are flushed on reconnect
+			// through the same loop.
+			if hv.Seq > bi.catchUp.Cursor || bi.catchUp.Phase == books.CatchUpFailed || len(bi.pending) > 0 {
 				schedule = append(schedule, b)
 			} else {
 				bi.lastSynced = m.Now()
@@ -376,21 +388,116 @@ func (m *Manager) scheduleCatchUp(a account.Account, b books.Book) {
 	go m.runCatchUp(a, b)
 }
 
+// bookRoot is the book's folder when it exists on this device.
+func bookRoot(b books.Book) string {
+	if p := b.AbsPath(); p != "" {
+		if fi, err := os.Stat(p); err == nil && fi.IsDir() {
+			return p
+		}
+	}
+	return ""
+}
+
+// LocalEdit tells the manager a note in the book was changed on disk by
+// this client (editor closed, checkbox toggled). The pending set is
+// recomputed at once; when the account's feed is open the edit is pushed
+// right away through the same catch-up + flush loop. Offline nothing is
+// queued — the pending count stays visible until the next sync.
+func (m *Manager) LocalEdit(bookID string) {
+	m.mu.Lock()
+	b := m.store.Registry.Get(bookID)
+	if b == nil || !b.IsBound() || b.VaultID == "" {
+		m.mu.Unlock()
+		return
+	}
+	book := *b
+	bi := m.infoLocked(book)
+	running := bi.running
+	a, ok := m.accountFor(book)
+	var open bool
+	if ok {
+		if f := m.feeds[acctKey(a.Server, a.Username)]; f != nil {
+			open = f.state == books.FeedOpen && !f.rest.NetworkError
+		}
+	}
+	m.mu.Unlock()
+	if ok && open && m.ctx != nil {
+		m.scheduleCatchUp(a, book)
+		return
+	}
+	if running {
+		return // the running loop recomputes pending when it ends
+	}
+	c := LoadCache(m.cacheDir, book.ID, book.VaultID, book.ServerURL)
+	pending := (&Syncer{Root: bookRoot(book), Cache: c}).Pending()
+	m.mu.Lock()
+	m.infoLocked(book).pending = pending
+	m.mu.Unlock()
+	m.ping()
+}
+
+// flushResult reports a pending-edit flush.
+type flushResult struct {
+	pushed    int
+	conflicts []Conflict
+	errs      []string
+	err       error // first network error (flush stopped)
+}
+
+// flushPending pushes every note modified since its base (Syncer.Push:
+// 3-way merge, or keep-both on conflict). It stops at the first network
+// error; other per-note failures are recorded and the note stays pending.
+func flushPending(ctx context.Context, s *Syncer) flushResult {
+	var fr flushResult
+	for _, p := range s.PendingPaths() {
+		res, err := s.Push(ctx, p)
+		if err != nil {
+			if isNetworkErr(err) || ctx.Err() != nil || errors.Is(err, account.ErrUnauthorized) {
+				fr.err = err
+				return fr
+			}
+			fr.errs = append(fr.errs, s.rel(p)+": "+err.Error())
+			continue
+		}
+		switch res.Outcome {
+		case PushMerged:
+			fr.pushed++
+		case PushConflict:
+			fr.pushed++
+			fr.conflicts = append(fr.conflicts, Conflict{Path: res.Path, Copy: res.ConflictPath})
+		}
+	}
+	return fr
+}
+
 func (m *Manager) runCatchUp(a account.Account, b books.Book) {
 	for {
 		api, _, err := m.API(a)
 		var res CatchUpResult
+		var fr flushResult
 		cache := LoadCache(m.cacheDir, b.ID, b.VaultID, b.ServerURL)
+		root := bookRoot(b)
+		m.mu.Lock()
+		canEdit := m.infoLocked(b).canEdit
+		m.mu.Unlock()
+		s := &Syncer{VaultID: b.VaultID, Root: root, Cache: cache, Bases: BasesFor(m.cacheDir, b.ID), NoPush: !canEdit, Now: m.Now}
 		if err == nil {
-			root := ""
-			if p := b.AbsPath(); p != "" {
-				if fi, serr := os.Stat(p); serr == nil && fi.IsDir() {
-					root = p
-				}
+			if napi, ok := api.(NoteAPI); ok {
+				s.API = napi
+			} else {
+				s.API, s.NoPush = pullOnly{api}, true
 			}
 			ctx, cancel := context.WithTimeout(m.ctx, 5*time.Minute)
-			res, err = CatchUp(ctx, api, b.VaultID, root, cache)
+			res, err = s.CatchUp(ctx, api)
+			if err == nil && root != "" && !s.NoPush {
+				fr = flushPending(ctx, s)
+				err = fr.err
+			}
 			cancel()
+		}
+		var pending []string
+		if root != "" {
+			pending = s.Pending()
 		}
 		m.mu.Lock()
 		bi := m.infoLocked(b)
@@ -399,17 +506,28 @@ func (m *Manager) runCatchUp(a account.Account, b books.Book) {
 		if res.Head > bi.catchUp.Head {
 			bi.catchUp.Head = res.Head
 		}
-		if res.Stats.Changed() {
+		if res.Stats.Changed() || fr.pushed > 0 {
 			bi.mirrorGen++
 		}
 		bi.dirty = res.Stats.Dirty
+		bi.pending = pending
+		for _, c := range append(res.Stats.Conflicts, fr.conflicts...) {
+			bi.conflicts = append(bi.conflicts, c)
+			m.notices = append(m.notices, fmt.Sprintf("Conflito em %s: a versão do servidor ficou na nota; a sua foi salva em %s", c.Path, c.Copy))
+		}
+		if len(bi.conflicts) > 5 {
+			bi.conflicts = bi.conflicts[len(bi.conflicts)-5:]
+		}
+		for _, e := range append(res.Stats.Errors, fr.errs...) {
+			bi.errs = append(bi.errs, m.Now().Format("15:04:05")+" envio "+e)
+		}
 		switch {
 		case err == nil:
 			bi.catchUp.Phase, bi.catchUp.Failures, bi.catchUp.Reason = books.CatchUpIdle, 0, ""
 			if f != nil {
 				f.rest = books.RestHealth{}
 			}
-			if bi.catchUp.Cursor >= bi.catchUp.Head {
+			if bi.catchUp.Cursor >= bi.catchUp.Head && len(pending) == 0 {
 				bi.lastSynced = m.Now()
 				cache.LastSyncedAt = bi.lastSynced
 			}
@@ -430,9 +548,9 @@ func (m *Manager) runCatchUp(a account.Account, b books.Book) {
 		}
 		if err != nil {
 			bi.errs = append(bi.errs, m.Now().Format("15:04:05")+" "+err.Error())
-			if len(bi.errs) > 5 {
-				bi.errs = bi.errs[len(bi.errs)-5:]
-			}
+		}
+		if len(bi.errs) > 5 {
+			bi.errs = bi.errs[len(bi.errs)-5:]
 		}
 		again := bi.again && err == nil
 		bi.again = false

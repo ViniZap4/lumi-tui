@@ -16,6 +16,7 @@ import (
 	"github.com/vinizap/lumi/tui-client/account"
 	"github.com/vinizap/lumi/tui-client/books"
 	"github.com/vinizap/lumi/tui-client/filesystem"
+	"github.com/vinizap/lumi/tui-client/internal/fakeserver"
 )
 
 const vid = "8c5a1d9f-2b3c-4d5e-8f60-718293a4b5c6"
@@ -140,5 +141,76 @@ func TestManagerIgnoresEventsFromAlternateAccount(t *testing.T) {
 	m.handle(account.Account{Server: "https://follower", Username: "u"}, Update{State: books.FeedOpen, Payload: &VaultRevoked{VaultID: vid, Reason: "removed"}})
 	if m.bstate["b"] != nil && m.bstate["b"].revoked {
 		t.Fatal("an alternate's event must not affect the bound book")
+	}
+}
+
+// The feed-driven safe push: a local edit is merged 3-way with a
+// concurrent remote edit, the pending set drains, and offline the pending
+// count is shown instead of anything being queued.
+func TestManagerLocalEditPushesThreeWayAndShowsPendingOffline(t *testing.T) {
+	srv := fakeserver.New(vid, "work")
+	defer srv.Close()
+	srv.Events = func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+		fmt.Fprintf(w, "event: hello\ndata: {\"protocol\":1,\"vaults\":[{\"vault_id\":%q,\"seq\":%d,\"role\":\"Editor\",\"can_edit\":true}]}\n\n", vid, srv.Head())
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}
+	srv.AddNote("n1", "n1.md", "hello world")
+	srv.AddNote("n2", "n2.md", "second")
+	root := t.TempDir()
+	reg := &books.Registry{}
+	reg.Add(books.Book{ID: "b1", Name: "Work", Kind: books.KindBound, ServerURL: srv.URL, Account: "alice", VaultID: vid, Path: root})
+	st := &books.Store{Path: filepath.Join(t.TempDir(), "books.yaml"), Registry: reg}
+	m := NewManager(st, []account.Account{{Server: srv.URL, Username: "alice", Token: "tok"}})
+	cacheDir := t.TempDir()
+	m.SetCacheDir(cacheDir)
+	m.ListAll = func(context.Context, []account.Account) ([]books.Listing, []error) { return nil, nil }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m.Start(ctx)
+	waitFor(t, m, func() bool {
+		v, _ := m.View("b1")
+		return v.Status.State == books.StateUpToDate && v.Cursor == srv.Head()
+	})
+	if _, ok := BasesFor(cacheDir, "b1").Load("n1"); !ok {
+		t.Fatal("mirror did not record a base")
+	}
+
+	edit := func(rel, body string) {
+		n, err := filesystem.ReadNote(filepath.Join(root, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		n.Content = body
+		if err := filesystem.WriteNote(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv.RemoteEdit("n1", "# hello world")
+	edit("n1.md", "hello brave world")
+	m.LocalEdit("b1")
+	waitFor(t, m, func() bool {
+		v, _ := m.View("b1")
+		return srv.Text("n1") == "# hello brave world" && len(v.Pending) == 0 && v.Status.State == books.StateUpToDate
+	})
+	if n, _ := filesystem.ReadNote(filepath.Join(root, "n1.md")); n.Content != "# hello brave world" {
+		t.Fatalf("local n1 = %q", n.Content)
+	}
+
+	// Offline: nothing is queued, the pending count shows.
+	cancel()
+	srv.Close()
+	m2 := NewManager(st, []account.Account{{Server: srv.URL, Username: "alice", Token: "tok"}})
+	m2.SetCacheDir(cacheDir)
+	edit("n2.md", "second, edited offline")
+	m2.LocalEdit("b1")
+	v, _ := m2.View("b1")
+	if len(v.Pending) != 1 || v.Pending[0] != "n2.md" {
+		t.Fatalf("pending = %v", v.Pending)
+	}
+	if v.Status.State != books.StateOffline {
+		t.Fatalf("state = %v", v.Status.State)
 	}
 }

@@ -61,6 +61,15 @@ type Server struct {
 	Fail409 []string
 	// OmitState makes GET /snapshot leave out `state` (pre-S9 server).
 	OmitState bool
+	// Events, when set, serves GET /api/events (the SSE feed).
+	Events http.HandlerFunc
+}
+
+// Head returns the vault's current change seq.
+func (s *Server) Head() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.head
 }
 
 // New starts a fake server for one vault.
@@ -140,6 +149,10 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/api/events" && s.Events != nil {
+		s.Events(w, r)
+		return
+	}
 	if r.Header.Get("X-Lumi-Token") == "" {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return

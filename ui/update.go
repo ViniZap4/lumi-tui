@@ -111,6 +111,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err == nil {
 			m.openNote(reloaded)
 		}
+		m.localEdit()
 		return m, m.loadItems
 
 	case toastDismissMsg:
