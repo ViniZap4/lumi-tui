@@ -83,11 +83,13 @@ func SaveFolderConfig(rootDir string, cfg *FolderConfig) error {
 		return fmt.Errorf("create .lumi dir: %w", err)
 	}
 
-	content := fmt.Sprintf(`# Lumi Folder Config
-# Server connection (for TUI real-time sync)
-server_url: %s
-server_token: %s
-`, cfg.ServerURL, cfg.ServerToken)
+	// Tokens belong in ~/.config/lumi/accounts.yaml, not in a notes
+	// folder (SPEC-LIVROS §2.5); the line is only written for legacy
+	// callers that still set one.
+	content := fmt.Sprintf("# Lumi Folder Config\nserver_url: %s\n", cfg.ServerURL)
+	if cfg.ServerToken != "" {
+		content += fmt.Sprintf("server_token: %s\n", cfg.ServerToken)
+	}
 
 	finalPath := filepath.Join(lumiDir, "config.yaml")
 	tmp, err := os.CreateTemp(lumiDir, ".config.yaml.tmp-*")
