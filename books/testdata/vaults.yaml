@@ -1,0 +1,22 @@
+vaults:
+  - id: 11111111-1111-4111-8111-111111111111
+    name: Trabalho
+    path: ~/notes/work
+    server: https://Lumi.Work.com/
+    account: alice
+    added_at: 2026-10-01T10:00:00Z
+    last_opened_at: 2026-11-22T11:00:00Z
+  - id: 22222222-2222-4222-8222-222222222222
+    name: Diário
+    path: /srv/notes/diario
+    server: null
+    account: null
+    added_at: 2026-09-01T10:00:00Z
+    last_opened_at: null
+  - id: 33333333-3333-4333-8333-333333333333
+    name: Old link
+    path: /srv/notes/old
+    server: https://lumi.work.com
+    account: bob
+    added_at: 2026-08-01T10:00:00Z
+    last_opened_at: null
