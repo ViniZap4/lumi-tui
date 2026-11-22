@@ -21,7 +21,11 @@ func readFixture(t *testing.T, name string) []byte {
 }
 
 // TestGoldenRoundTrip is the cross-client contract: parsing the shared
-// fixture and writing it back must reproduce it byte for byte.
+// fixture and writing it back must reproduce it byte for byte. The
+// books.v1*.yaml and book-status.cases.json fixtures are copied verbatim
+// from apple-client Tests/Fixtures/books (commit c8a6817/345331f); keep
+// them byte-identical (sha256 checked by `make fixtures-check` once the
+// monorepo copy exists, SPEC-LIVROS §6 C0).
 func TestGoldenRoundTrip(t *testing.T) {
 	want := readFixture(t, "books.v1.yaml")
 	r, err := Parse(want)
@@ -37,17 +41,48 @@ func TestGoldenRoundTrip(t *testing.T) {
 	}
 }
 
+// TestGoldenNoncanonicalNormalises: the hand-edited fixture (uppercase
+// UUIDs, offsets, fractional seconds, ~, NULL, missing keys, unnormalised
+// URLs, single quotes) must re-serialise to the canonical fixture.
+func TestGoldenNoncanonicalNormalises(t *testing.T) {
+	r, err := Parse(readFixture(t, "books.v1.noncanonical.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.ReadOnly {
+		t.Fatalf("read-only: %v", r.Problems)
+	}
+	want := readFixture(t, "books.v1.yaml")
+	if got := r.Marshal(); !bytes.Equal(got, want) {
+		t.Fatalf("noncanonical -> canonical differs.\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestGoldenEmpty(t *testing.T) {
+	want := readFixture(t, "books.v1.empty.yaml")
+	r, err := Parse(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Marshal(); !bytes.Equal(got, want) {
+		t.Fatalf("got %q", got)
+	}
+	if got := (&Registry{}).Marshal(); !bytes.Equal(got, want) {
+		t.Fatalf("fresh registry: %q", got)
+	}
+}
+
 func TestGoldenFieldValues(t *testing.T) {
 	r, err := Parse(readFixture(t, "books.v1.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.Books) != 3 {
-		t.Fatalf("want 3 books, got %d", len(r.Books))
+	if len(r.Books) != 5 {
+		t.Fatalf("want 5 books, got %d", len(r.Books))
 	}
-	work := r.Get("0192f7a1-5b1e-7c3d-9e2f-4a6b8c0d1e2f")
+	work := r.Get("0192f7a1-3b4c-7d5e-8f60-718293a4b5c6")
 	if work == nil || work.Kind != KindBound || work.ServerURL != "https://lumi.work.com" ||
-		work.Account != "alice" || work.VaultID != "8c5a1d9f-2b3c-4d5e-8f60-718293a4b5c6" ||
+		work.Account != "alice" || work.VaultID != "8c5a1d9f-2e3b-4c4d-9e5f-6a7b8c9d0e1f" ||
 		work.Path != "~/notes/work" || work.Sort != 10 ||
 		!work.AddedAt.Equal(time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC)) {
 		t.Fatalf("work book wrong: %+v", work)
@@ -55,37 +90,31 @@ func TestGoldenFieldValues(t *testing.T) {
 	if got := r.ActiveBook(); got == nil || got.ID != work.ID {
 		t.Errorf("active = %+v, want work", got)
 	}
-	recipes := r.Get("3f2e1d0c-9b8a-4766-8554-433221100fed")
-	if recipes == nil || recipes.Name != `Receitas "da vó"` || recipes.Path != "" || !recipes.LastOpenedAt.IsZero() {
-		t.Fatalf("recipes book wrong: %+v", recipes)
+	diary := r.Get("1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b")
+	if diary == nil || diary.Name != `Diário "pessoal" \ rascunhos` || diary.Kind != KindLocal || !diary.LastOpenedAt.IsZero() {
+		t.Fatalf("diary wrong: %+v", diary)
 	}
-	// sort tie (10, 10) breaks on id.
-	if r.Books[0].Name != "Diário" || r.Books[1].Name != "Trabalho" {
-		t.Errorf("order wrong: %s, %s", r.Books[0].Name, r.Books[1].Name)
+	if b := r.Get("legacy-local-1"); b == nil || b.Name != "Tab\there" {
+		t.Fatalf("non-UUID id / tab escape: %+v", b)
 	}
-}
-
-func TestMarshalEmpty(t *testing.T) {
-	got := string((&Registry{}).Marshal())
-	want := Header + "\nversion: 1\nactive: null\nbooks: []\n"
-	if got != want {
-		t.Fatalf("got %q want %q", got, want)
+	if b := r.Get("9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a"); b == nil || !b.IncompleteBinding() {
+		t.Fatalf("incomplete binding: %+v", b)
 	}
-	r, err := Parse([]byte(got))
-	if err != nil || len(r.Books) != 0 || r.ReadOnly {
-		t.Fatalf("reparse empty: %+v %v", r, err)
+	// sort tie (20, 20) breaks on id.
+	if r.Books[1].Name != `Diário "pessoal" \ rascunhos` || r.Books[2].Name != "Leituras" {
+		t.Errorf("order wrong: %s, %s", r.Books[1].Name, r.Books[2].Name)
 	}
 }
 
 func TestMarshalEscapes(t *testing.T) {
 	r := &Registry{}
-	_, err := r.Add(Book{ID: "A", Name: "back\\slash \"q\" tab\tnl\n", Kind: KindLocal, Path: "/x: #y",
+	_, err := r.Add(Book{ID: "A", Name: "ctl\x01 back\\slash \"q\" tab\tnl\n", Kind: KindLocal, Path: "/x: #y",
 		AddedAt: time.Date(2026, 1, 2, 3, 4, 5, 999, time.FixedZone("BRT", -3*3600))})
 	if err != nil {
 		t.Fatal(err)
 	}
 	out := r.Marshal()
-	if !strings.Contains(string(out), `name: "back\\slash \"q\" tab\tnl\n"`) {
+	if !strings.Contains(string(out), `name: "ctl\u0001 back\\slash \"q\" tab\tnl\n"`) || !strings.Contains(string(out), `id: "A"`) {
 		t.Errorf("escaping wrong:\n%s", out)
 	}
 	if !strings.Contains(string(out), "added_at: 2026-01-02T06:04:05Z") {
@@ -161,10 +190,10 @@ func TestSavePermsAndAtomic(t *testing.T) {
 
 func TestAddEnforcesOneBoundBookPerVault(t *testing.T) {
 	r := &Registry{}
-	if _, err := r.Add(Book{ID: "a", Kind: KindBound, VaultID: "V", ServerURL: "https://a", Account: "u"}); err != nil {
+	if _, err := r.Add(Book{ID: "a", Kind: KindBound, VaultID: "8C5A1D9F-2E3B-4C4D-9E5F-6A7B8C9D0E1F", ServerURL: "https://a", Account: "u"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Add(Book{ID: "b", Kind: KindBound, VaultID: "v", ServerURL: "https://b", Account: "u"}); err == nil {
+	if _, err := r.Add(Book{ID: "b", Kind: KindBound, VaultID: "8c5a1d9f-2e3b-4c4d-9e5f-6a7b8c9d0e1f", ServerURL: "https://b", Account: "u"}); err == nil {
 		t.Fatal("second bound book for the same vault must be rejected")
 	}
 	if r.Books[0].Sort != 10 {
@@ -213,7 +242,7 @@ func TestFind(t *testing.T) {
 	if b := r.Find("work"); b == nil || b.ID != "aaaa" {
 		t.Errorf("by name: %+v", b)
 	}
-	if b := r.Find("AAAA"); b == nil || b.ID != "aaaa" {
+	if b := r.Find("aaaa"); b == nil || b.ID != "aaaa" {
 		t.Errorf("by id: %+v", b)
 	}
 	if r.Find("nope") != nil {

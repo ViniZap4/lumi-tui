@@ -1,0 +1,50 @@
+# hand-edited
+version: 1
+active: 0192F7A1-3B4C-7D5E-8F60-718293A4B5C6   # TUI pointer
+books:
+  - id: 9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a
+    name: Ligação incompleta
+    kind: bound
+    server_url: http://192.168.1.20:8080/
+    account: bob
+    vault_id: ~
+    path: ~/notes/home-lab
+    sort: 40
+    added_at: 2026-11-22T07:05:00-03:00
+  - id: "legacy-local-1"
+    name: "Tab\there"
+    kind: local
+    path: /Volumes/Ext/notes
+    sort: 30
+    added_at: 2026-01-01T00:00:00.750Z
+    last_opened_at:
+  - id: 2A3B4C5D-6E7F-4A8B-9C0D-1E2F3A4B5C6D
+    name: Leituras
+    kind: bound
+    server_url: "HTTPS://Notes.Friend.org:443/lumi/"
+    account: alice.s
+    vault_id: 2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d
+    path: null
+    sort: 20
+    added_at: 2026-11-21T09:15:00Z
+    last_opened_at: 2026-11-22T09:00:00Z
+  - id: 1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b
+    name: 'Diário "pessoal" \ rascunhos'
+    kind: local
+    server_url: null
+    account: null
+    vault_id: null
+    path: "~/Documents/Diário"
+    sort: 20
+    added_at: 2026-11-20T08:30:00Z
+    last_opened_at: NULL
+  - id: 0192f7a1-3b4c-7d5e-8f60-718293a4b5c6
+    name: "Trabalho"
+    kind: bound
+    server_url: "https://lumi.work.com"
+    account: "alice"
+    vault_id: 8c5a1d9f-2e3b-4c4d-9e5f-6a7b8c9d0e1f
+    path: "~/notes/work"
+    sort: 10
+    added_at: 2026-11-22T10:00:00Z
+    last_opened_at: 2026-11-22T11:00:00.999Z

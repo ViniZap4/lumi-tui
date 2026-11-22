@@ -116,6 +116,7 @@ type Editor struct {
 type RestHealth struct {
 	NetworkError bool // a network error sends the book Offline at once
 	Unauthorized bool // a 401 on REST
+	Failures     int  // consecutive non-transient REST failures (5xx, bad JSON)
 }
 
 // StatusInput is everything bookStatus depends on.
@@ -167,8 +168,12 @@ func BookStatus(in StatusInput) Status {
 	if in.CatchUp.Phase == CatchUpFailed && in.CatchUp.Failures >= ErrorThreshold {
 		return Status{State: StateError, Reason: in.CatchUp.Reason}
 	}
-	// 4. Offline
-	if in.Feed != FeedOpen || in.Rest.NetworkError {
+	if in.Rest.Failures >= ErrorThreshold {
+		return Status{State: StateError, Reason: "o servidor está respondendo com erro"}
+	}
+	// 4. Offline. A `disabled` feed (server without /api/events) is not a
+	// disconnection: the book degrades to REST (shared case table).
+	if in.Feed == FeedConnecting || in.Feed == FeedBackoff || in.Rest.NetworkError {
 		return Status{State: StateOffline}
 	}
 	// 5. Sincronizando

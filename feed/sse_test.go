@@ -74,3 +74,51 @@ func TestDecodeLowercasesAndIgnoresUnknown(t *testing.T) {
 		t.Fatal("bad JSON must error")
 	}
 }
+
+// Shared fixtures (copied verbatim from apple-client Tests/Fixtures/feed).
+func TestParserSharedFixtures(t *testing.T) {
+	cases := []struct {
+		file     string
+		names    []string
+		comments int
+	}{
+		{"stream.basic.sse", []string{EvHello, EvVaultHead, EvVaultAccess, EvVaultUpdated, EvVaultRevoked, EvReconnect}, 2},
+		{"stream.crlf-multiline.sse", []string{EvHello, "vault.future_thing", EvVaultHead}, 1},
+		{"stream.session-ended.sse", []string{EvHello, EvSessionEnded}, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.file, func(t *testing.T) {
+			data, err := os.ReadFile("testdata/" + c.file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, comments := parseAll(data)
+			if len(want) != len(c.names) || comments != c.comments {
+				t.Fatalf("events %+v comments %d", want, comments)
+			}
+			for i, n := range c.names {
+				if want[i].Name != n {
+					t.Errorf("event %d = %q want %q", i, want[i].Name, n)
+				}
+				if _, err := Decode(want[i]); err != nil {
+					t.Errorf("decode %s: %v", n, err)
+				}
+			}
+			for cut := 0; cut <= len(data); cut++ {
+				if got, _ := parseAll(data[:cut], data[cut:]); !reflect.DeepEqual(got, want) {
+					t.Fatalf("cut at %d differs", cut)
+				}
+			}
+		})
+	}
+	// Multi-line data joins with LF and still decodes.
+	data, _ := os.ReadFile("testdata/stream.crlf-multiline.sse")
+	evs, _ := parseAll(data)
+	h, err := Decode(evs[0])
+	if err != nil || h.(*Hello).UserID != "5b1e0c2a-9d8f-4e7a-b6c5-d4e3f2a1b0c9" {
+		t.Fatalf("multiline hello: %+v %v", h, err)
+	}
+	if v, _ := Decode(evs[2]); v.(*VaultHead).Seq != 44 {
+		t.Fatalf("field without space after colon: %+v", v)
+	}
+}

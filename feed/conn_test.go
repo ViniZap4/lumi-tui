@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -205,5 +206,21 @@ func TestConnFirstEventMustBeHello(t *testing.T) {
 		if u.State == books.FeedOpen {
 			t.Fatal("must not open without hello")
 		}
+	}
+}
+
+func TestConnServesSharedSessionEndedFixture(t *testing.T) {
+	data, err := os.ReadFile("testdata/stream.session-ended.sse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sseHeaders(w)
+		w.Write(data)
+	}))
+	defer srv.Close()
+	got := collect(t, ConnConfig{ServerURL: srv.URL, Token: "x"}, func([]Update) bool { return false })
+	if got[len(got)-1].State != books.FeedAuthDead {
+		t.Fatalf("%+v", got)
 	}
 }

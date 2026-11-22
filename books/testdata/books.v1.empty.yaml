@@ -1,0 +1,4 @@
+# ~/.config/lumi/books.yaml — lumi book registry. Format: SPEC-LIVROS §2.3.
+version: 1
+active: null
+books: []

@@ -1,0 +1,681 @@
+{
+  "description": "SPEC-LIVROS §4 bookStatus table, shared by Apple, TUI and web. 'spec' quotes verbatim the §4.1 row (or the precedence line) each case exercises. feed: connecting|open|backoff|auth_dead|disabled|null. rest: ok|network|unauthorized|failing:N.",
+  "cases": [
+    {
+      "name": "local book is always local, even with everything broken",
+      "spec": "**Não ligado** / Local | `kind: local` | ícone de pasta, sem ponto",
+      "book": {
+        "kind": "local",
+        "has_account": false,
+        "has_token": false,
+        "has_vault_id": false,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": null,
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "network",
+      "expected": "local"
+    },
+    {
+      "name": "no account on this client",
+      "spec": "**Precisa entrar** / Sign in | Livro sem conta neste cliente, token ausente, 401 ou `session.ended` | ponto âmbar + botão \"Entrar\"",
+      "book": {
+        "kind": "bound",
+        "has_account": false,
+        "has_token": false,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": null,
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "needs_sign_in"
+    },
+    {
+      "name": "token missing",
+      "spec": "**Precisa entrar** / Sign in | Livro sem conta neste cliente, token ausente, 401 ou `session.ended` | ponto âmbar + botão \"Entrar\"",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": false,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": null,
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "needs_sign_in"
+    },
+    {
+      "name": "401 on REST",
+      "spec": "**Precisa entrar** / Sign in | Livro sem conta neste cliente, token ausente, 401 ou `session.ended` | ponto âmbar + botão \"Entrar\"",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": "open",
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "unauthorized",
+      "expected": "needs_sign_in"
+    },
+    {
+      "name": "session.ended on the feed",
+      "spec": "**Precisa entrar** / Sign in | Livro sem conta neste cliente, token ausente, 401 ou `session.ended` | ponto âmbar + botão \"Entrar\"",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": "auth_dead",
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "needs_sign_in"
+    },
+    {
+      "name": "sign-in beats error (precedence)",
+      "spec": "Precedência (vence o primeiro que valer): Não ligado → Precisa entrar → Erro → Offline → Sincronizando → Somente leitura → Atualizado.",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": true,
+        "can_edit": true
+      },
+      "feed": "auth_dead",
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "needs_sign_in"
+    },
+    {
+      "name": "vault_id null (incomplete link) is an error immediately",
+      "spec": "**Erro** / Error | 3 falhas seguidas não transitórias (5xx, JSON inválido, `vault_id` nulo, `vault.revoked`), com motivo legível | ponto vermelho",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": false,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": "open",
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "error"
+    },
+    {
+      "name": "vault.revoked is an error immediately",
+      "spec": "**Erro** / Error | 3 falhas seguidas não transitórias (5xx, JSON inválido, `vault_id` nulo, `vault.revoked`), com motivo legível | ponto vermelho",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": true,
+        "can_edit": true
+      },
+      "feed": "open",
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "error"
+    },
+    {
+      "name": "3 consecutive non-transient catch-up failures",
+      "spec": "**Erro** / Error | 3 falhas seguidas não transitórias (5xx, JSON inválido, `vault_id` nulo, `vault.revoked`), com motivo legível | ponto vermelho",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": "open",
+      "catch_up": {
+        "phase": "failed",
+        "failures": 3,
+        "reason": "HTTP 500",
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "error"
+    },
+    {
+      "name": "2 failures are not yet an error (feed open, behind: syncing)",
+      "spec": "**Erro** / Error | 3 falhas seguidas não transitórias (5xx, JSON inválido, `vault_id` nulo, `vault.revoked`), com motivo legível | ponto vermelho",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": "open",
+      "catch_up": {
+        "phase": "failed",
+        "failures": 2,
+        "reason": "HTTP 500",
+        "cursor": 40,
+        "head": 42
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "syncing"
+    },
+    {
+      "name": "3 consecutive non-transient REST failures",
+      "spec": "**Erro** / Error | 3 falhas seguidas não transitórias (5xx, JSON inválido, `vault_id` nulo, `vault.revoked`), com motivo legível | ponto vermelho",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": "open",
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "failing:3",
+      "expected": "error"
+    },
+    {
+      "name": "error beats offline (precedence)",
+      "spec": "Precedência (vence o primeiro que valer): Não ligado → Precisa entrar → Erro → Offline → Sincronizando → Somente leitura → Atualizado.",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": true,
+        "can_edit": true
+      },
+      "feed": "backoff",
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "error"
+    },
+    {
+      "name": "feed in backoff",
+      "spec": "**Offline** | Feed da conta desconectado, ou rede indisponível | ponto cinza vazado",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": "backoff",
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "offline"
+    },
+    {
+      "name": "feed connecting (before hello)",
+      "spec": "**Offline** | Feed da conta desconectado, ou rede indisponível | ponto cinza vazado",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": "connecting",
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "offline"
+    },
+    {
+      "name": "network error on REST even with the feed open",
+      "spec": "**Offline** | Feed da conta desconectado, ou rede indisponível | ponto cinza vazado",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": "open",
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "network",
+      "expected": "offline"
+    },
+    {
+      "name": "offline beats syncing (precedence)",
+      "spec": "Precedência (vence o primeiro que valer): Não ligado → Precisa entrar → Erro → Offline → Sincronizando → Somente leitura → Atualizado.",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": "backoff",
+      "catch_up": {
+        "phase": "running",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "offline"
+    },
+    {
+      "name": "changes request in flight",
+      "spec": "**Sincronizando** / Syncing | Feed conectado e (`changes` em andamento, ou `head > cursor`, ou editor ativo em CONNECTING/SYNCING, ou edições locais ainda não confirmadas) | ponto pulsando",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": "open",
+      "catch_up": {
+        "phase": "running",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "syncing"
+    },
+    {
+      "name": "head > cursor",
+      "spec": "**Sincronizando** / Syncing | Feed conectado e (`changes` em andamento, ou `head > cursor`, ou editor ativo em CONNECTING/SYNCING, ou edições locais ainda não confirmadas) | ponto pulsando",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": "open",
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 41,
+        "head": 43
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "syncing"
+    },
+    {
+      "name": "editor CONNECTING",
+      "spec": "**Sincronizando** / Syncing | Feed conectado e (`changes` em andamento, ou `head > cursor`, ou editor ativo em CONNECTING/SYNCING, ou edições locais ainda não confirmadas) | ponto pulsando",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": "open",
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "connecting",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "syncing"
+    },
+    {
+      "name": "editor SYNCING",
+      "spec": "**Sincronizando** / Syncing | Feed conectado e (`changes` em andamento, ou `head > cursor`, ou editor ativo em CONNECTING/SYNCING, ou edições locais ainda não confirmadas) | ponto pulsando",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": "open",
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "syncing",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "syncing"
+    },
+    {
+      "name": "local edits not yet confirmed",
+      "spec": "**Sincronizando** / Syncing | Feed conectado e (`changes` em andamento, ou `head > cursor`, ou editor ativo em CONNECTING/SYNCING, ou edições locais ainda não confirmadas) | ponto pulsando",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": "open",
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "live",
+        "pending": true
+      },
+      "rest": "ok",
+      "expected": "syncing"
+    },
+    {
+      "name": "syncing beats read-only (precedence)",
+      "spec": "Precedência (vence o primeiro que valer): Não ligado → Precisa entrar → Erro → Offline → Sincronizando → Somente leitura → Atualizado.",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": false
+      },
+      "feed": "open",
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 1,
+        "head": 2
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "syncing"
+    },
+    {
+      "name": "up to date but can_edit = false",
+      "spec": "**Somente leitura** / Read-only | Atualizado e `can_edit = false` | cadeado",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": false
+      },
+      "feed": "open",
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "read_only"
+    },
+    {
+      "name": "feed open, cursor = head, editor closed",
+      "spec": "**Atualizado** / Up to date | Feed conectado, `cursor = head`, editor LIVE ou fechado, nada pendente | ponto verde",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": "open",
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "up_to_date"
+    },
+    {
+      "name": "feed open, cursor = head, editor LIVE",
+      "spec": "**Atualizado** / Up to date | Feed conectado, `cursor = head`, editor LIVE ou fechado, nada pendente | ponto verde",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": "open",
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": 42
+      },
+      "editor": {
+        "phase": "live",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "up_to_date"
+    },
+    {
+      "name": "feed disabled (server without /api/events) degrades to REST, not offline",
+      "spec": "Apple resolution (not in spec): accountFeed = disabled is not 'desconectado'",
+      "book": {
+        "kind": "bound",
+        "has_account": true,
+        "has_token": true,
+        "has_vault_id": true,
+        "revoked": false,
+        "can_edit": true
+      },
+      "feed": "disabled",
+      "catch_up": {
+        "phase": "idle",
+        "failures": 0,
+        "reason": null,
+        "cursor": 42,
+        "head": null
+      },
+      "editor": {
+        "phase": "closed",
+        "pending": false
+      },
+      "rest": "ok",
+      "expected": "up_to_date"
+    }
+  ]
+}

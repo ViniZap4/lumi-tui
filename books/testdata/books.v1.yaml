@@ -1,34 +1,54 @@
 # ~/.config/lumi/books.yaml — lumi book registry. Format: SPEC-LIVROS §2.3.
 version: 1
-active: 0192f7a1-5b1e-7c3d-9e2f-4a6b8c0d1e2f
+active: 0192f7a1-3b4c-7d5e-8f60-718293a4b5c6
 books:
-  - id: 0192f7a1-0000-7000-8000-000000000001
-    name: "Diário"
-    kind: local
-    server_url: null
-    account: null
-    vault_id: null
-    path: "~/notes/diario"
-    sort: 10
-    added_at: 2026-11-01T09:00:00Z
-    last_opened_at: null
-  - id: 0192f7a1-5b1e-7c3d-9e2f-4a6b8c0d1e2f
+  - id: 0192f7a1-3b4c-7d5e-8f60-718293a4b5c6
     name: "Trabalho"
     kind: bound
     server_url: "https://lumi.work.com"
     account: "alice"
-    vault_id: 8c5a1d9f-2b3c-4d5e-8f60-718293a4b5c6
+    vault_id: 8c5a1d9f-2e3b-4c4d-9e5f-6a7b8c9d0e1f
     path: "~/notes/work"
     sort: 10
     added_at: 2026-11-22T10:00:00Z
     last_opened_at: 2026-11-22T11:00:00Z
-  - id: 3f2e1d0c-9b8a-4766-8554-433221100fed
-    name: "Receitas \"da vó\""
+  - id: 1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b
+    name: "Diário \"pessoal\" \\ rascunhos"
+    kind: local
+    server_url: null
+    account: null
+    vault_id: null
+    path: "~/Documents/Diário"
+    sort: 20
+    added_at: 2026-11-20T08:30:00Z
+    last_opened_at: null
+  - id: 2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d
+    name: "Leituras"
     kind: bound
     server_url: "https://notes.friend.org/lumi"
     account: "alice.s"
-    vault_id: 3f2e1d0c-9b8a-4766-8554-433221100fed
+    vault_id: 2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d
     path: null
     sort: 20
-    added_at: 2026-11-20T08:30:15Z
+    added_at: 2026-11-21T09:15:00Z
+    last_opened_at: 2026-11-22T09:00:00Z
+  - id: "legacy-local-1"
+    name: "Tab\there"
+    kind: local
+    server_url: null
+    account: null
+    vault_id: null
+    path: "/Volumes/Ext/notes"
+    sort: 30
+    added_at: 2026-01-01T00:00:00Z
+    last_opened_at: null
+  - id: 9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a
+    name: "Ligação incompleta"
+    kind: bound
+    server_url: "http://192.168.1.20:8080"
+    account: "bob"
+    vault_id: null
+    path: "~/notes/home-lab"
+    sort: 40
+    added_at: 2026-11-22T10:05:00Z
     last_opened_at: null

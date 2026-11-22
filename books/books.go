@@ -9,9 +9,10 @@
 //   - books ordered by `sort`, then `id`;
 //   - timestamps in UTC with seconds and `Z`;
 //   - a literal `null` for absent values;
-//   - free-text strings (name, server_url, account, path) in double
-//     quotes; identifiers (UUIDs), the `kind` enum, integers and
-//     timestamps bare — exactly as the spec's example shows;
+//   - id, vault_id and active bare when they are canonical lowercase
+//     UUIDs, otherwise double-quoted; name, server_url, account and path
+//     always double-quoted; `kind`, `sort` and timestamps bare;
+//   - escapes: \\ \" \n \t \r, other C0/DEL as \u00XX (uppercase hex);
 //   - LF line endings and a single trailing newline.
 //
 // Reading goes through yaml.v3 (tolerant of hand edits). A file whose
@@ -30,8 +31,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
+	"github.com/vinizap/lumi/tui-client/account"
 	"gopkg.in/yaml.v3"
 )
 
@@ -150,7 +151,7 @@ func Parse(data []byte) (*Registry, error) {
 		r.ReadOnly = true
 		r.Problems = append(r.Problems, fmt.Sprintf("format version %d is newer than %d", r.Version, FormatVersion))
 	}
-	r.Active = strings.ToLower(str(raw.Active))
+	r.Active = NormalizeID(str(raw.Active))
 	for i, rb := range raw.Books {
 		b, err := bookFromRaw(rb)
 		if err != nil {
@@ -166,12 +167,12 @@ func Parse(data []byte) (*Registry, error) {
 
 func bookFromRaw(rb rawBook) (Book, error) {
 	b := Book{
-		ID:        strings.ToLower(strings.TrimSpace(str(rb.ID))),
+		ID:        NormalizeID(str(rb.ID)),
 		Name:      str(rb.Name),
 		Kind:      Kind(str(rb.Kind)),
-		ServerURL: str(rb.ServerURL),
+		ServerURL: normalizeServer(str(rb.ServerURL)),
 		Account:   str(rb.Account),
-		VaultID:   strings.ToLower(strings.TrimSpace(str(rb.VaultID))),
+		VaultID:   NormalizeID(str(rb.VaultID)),
 		Path:      str(rb.Path),
 	}
 	if b.ID == "" {
@@ -237,19 +238,19 @@ func (r *Registry) Marshal() []byte {
 	b.WriteString(Header)
 	b.WriteString("\n")
 	b.WriteString("version: " + strconv.Itoa(FormatVersion) + "\n")
-	b.WriteString("active: " + bare(r.Active) + "\n")
+	b.WriteString("active: " + idToken(r.Active) + "\n")
 	if len(r.Books) == 0 {
 		b.WriteString("books: []\n")
 		return []byte(b.String())
 	}
 	b.WriteString("books:\n")
 	for _, bk := range r.Books {
-		b.WriteString("  - id: " + bare(bk.ID) + "\n")
+		b.WriteString("  - id: " + idToken(bk.ID) + "\n")
 		b.WriteString("    name: " + quoted(bk.Name) + "\n")
 		b.WriteString("    kind: " + string(bk.Kind) + "\n")
 		b.WriteString("    server_url: " + quotedOrNull(bk.ServerURL) + "\n")
 		b.WriteString("    account: " + quotedOrNull(bk.Account) + "\n")
-		b.WriteString("    vault_id: " + bare(bk.VaultID) + "\n")
+		b.WriteString("    vault_id: " + idToken(bk.VaultID) + "\n")
 		b.WriteString("    path: " + quotedOrNull(bk.Path) + "\n")
 		b.WriteString("    sort: " + strconv.Itoa(bk.Sort) + "\n")
 		b.WriteString("    added_at: " + stamp(bk.AddedAt) + "\n")
@@ -258,9 +259,55 @@ func (r *Registry) Marshal() []byte {
 	return []byte(b.String())
 }
 
-func bare(s string) string {
-	if s == "" {
+// idToken renders id/vault_id/active: bare for a canonical lowercase
+// UUID, double-quoted otherwise, null when empty.
+func idToken(s string) string {
+	switch {
+	case s == "":
 		return "null"
+	case isCanonicalUUID(s):
+		return s
+	default:
+		return quoted(s)
+	}
+}
+
+func isCanonicalUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch i {
+		case 8, 13, 18, 23:
+			if c != '-' {
+				return false
+			}
+		default:
+			if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// NormalizeID lowercases UUID-shaped ids (so they serialise bare) and
+// leaves any other id untouched.
+func NormalizeID(s string) string {
+	s = strings.TrimSpace(s)
+	if l := strings.ToLower(s); isCanonicalUUID(l) {
+		return l
+	}
+	return s
+}
+
+func normalizeServer(s string) string {
+	if s == "" {
+		return ""
+	}
+	if n, err := account.NormalizeServerURL(s); err == nil {
+		return n
 	}
 	return s
 }
@@ -272,7 +319,7 @@ func quotedOrNull(s string) string {
 	return quoted(s)
 }
 
-// quoted renders a YAML double-quoted scalar. Only `\` , `"` and control
+// quoted renders a YAML double-quoted scalar. Only `\`, `"` and control
 // characters are escaped; everything else (including non-ASCII) is
 // emitted as UTF-8.
 func quoted(s string) string {
@@ -292,9 +339,7 @@ func quoted(s string) string {
 			b.WriteString(`\r`)
 		default:
 			if r < 0x20 || r == 0x7f {
-				fmt.Fprintf(&b, `\x%02x`, r)
-			} else if r == utf8.RuneError {
-				b.WriteString(`�`)
+				fmt.Fprintf(&b, `\u%04X`, r)
 			} else {
 				b.WriteRune(r)
 			}
@@ -361,7 +406,7 @@ func (r *Registry) sortBooks() {
 
 // Get returns the book with id, or nil.
 func (r *Registry) Get(id string) *Book {
-	id = strings.ToLower(strings.TrimSpace(id))
+	id = NormalizeID(id)
 	for i := range r.Books {
 		if r.Books[i].ID == id {
 			return &r.Books[i]
@@ -372,7 +417,7 @@ func (r *Registry) Get(id string) *Book {
 
 // ByVaultID returns the bound book for a server vault id, or nil.
 func (r *Registry) ByVaultID(vaultID string) *Book {
-	vaultID = strings.ToLower(strings.TrimSpace(vaultID))
+	vaultID = NormalizeID(vaultID)
 	if vaultID == "" {
 		return nil
 	}
@@ -444,8 +489,8 @@ func (r *Registry) NextSort() int {
 // Add appends a book (assigning Sort when zero) and returns a pointer to
 // it. It enforces the §2.4 invariant: at most one bound book per vault_id.
 func (r *Registry) Add(b Book) (*Book, error) {
-	b.ID = strings.ToLower(b.ID)
-	b.VaultID = strings.ToLower(b.VaultID)
+	b.ID = NormalizeID(b.ID)
+	b.VaultID = NormalizeID(b.VaultID)
 	if b.ID == "" {
 		return nil, errors.New("book id is required")
 	}
@@ -470,7 +515,7 @@ func (r *Registry) Add(b Book) (*Book, error) {
 // Remove drops the book with id. Returns true when a row was removed.
 // Clears Active when it pointed at the removed book.
 func (r *Registry) Remove(id string) bool {
-	id = strings.ToLower(id)
+	id = NormalizeID(id)
 	for i := range r.Books {
 		if r.Books[i].ID == id {
 			r.Books = append(r.Books[:i], r.Books[i+1:]...)
@@ -514,7 +559,7 @@ func (r *Registry) Move(id string, delta int) bool {
 	r.sortBooks()
 	idx := -1
 	for i := range r.Books {
-		if r.Books[i].ID == strings.ToLower(id) {
+		if r.Books[i].ID == NormalizeID(id) {
 			idx = i
 			break
 		}
