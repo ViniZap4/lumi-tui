@@ -46,7 +46,7 @@ func TestFileRoundTrip(t *testing.T) {
 		t.Fatalf("expected 2 accounts, got %d", len(loaded.Accounts))
 	}
 
-	gotAlice := loaded.Find("https://lumi.work.example")
+	gotAlice := loaded.Find("https://lumi.work.example", "alice")
 	if gotAlice == nil {
 		t.Fatalf("alice account missing after roundtrip")
 	}
@@ -57,7 +57,7 @@ func TestFileRoundTrip(t *testing.T) {
 		t.Errorf("alice expires_at wrong: got %v, want %v", gotAlice.ExpiresAt, now.Add(24*time.Hour))
 	}
 
-	gotBob := loaded.Find("https://lumi.home.example")
+	gotBob := loaded.Find("https://lumi.home.example", "bob")
 	if gotBob == nil {
 		t.Fatalf("bob account missing")
 	}
@@ -117,24 +117,141 @@ func TestLoadFromMissingFileReturnsEmpty(t *testing.T) {
 	}
 }
 
-func TestUpsertReplacesByServer(t *testing.T) {
+func TestUpsertReplacesBySameServerAndUser(t *testing.T) {
 	f := &File{}
 	old := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 	new := time.Date(2026, 5, 22, 0, 0, 0, 0, time.UTC)
 
-	replaced := f.Upsert(Account{Server: "https://s", Username: "a", Token: "t1", AddedAt: old})
-	if replaced {
+	if f.Upsert(Account{Server: "https://s", Username: "a", Token: "t1", AddedAt: old}) {
 		t.Errorf("first upsert should not be a replacement")
 	}
-	replaced = f.Upsert(Account{Server: "https://s", Username: "b", Token: "t2", AddedAt: new})
-	if !replaced {
-		t.Errorf("second upsert on same server should replace")
+	if !f.Upsert(Account{Server: "https://S/", Username: "A", Token: "t2", AddedAt: new}) {
+		t.Errorf("re-login as the same user (normalised) should replace")
 	}
-	if len(f.Accounts) != 1 {
-		t.Errorf("expected 1 row after upsert, got %d", len(f.Accounts))
+	if len(f.Accounts) != 1 || f.Accounts[0].Token != "t2" {
+		t.Fatalf("upsert didn't replace: %+v", f.Accounts)
 	}
-	if f.Accounts[0].Username != "b" || f.Accounts[0].Token != "t2" {
-		t.Errorf("upsert didn't replace fields: %+v", f.Accounts[0])
+}
+
+func TestUpsertKeepsTwoAccountsOnSameServer(t *testing.T) {
+	f := &File{}
+	f.Upsert(Account{Server: "https://s", Username: "alice", Token: "t1"})
+	if f.Upsert(Account{Server: "https://s", Username: "bob", Token: "t2"}) {
+		t.Fatalf("different user on same server must not replace")
+	}
+	if len(f.Accounts) != 2 {
+		t.Fatalf("want 2 rows, got %d", len(f.Accounts))
+	}
+	if a := f.Find("https://s", "alice"); a == nil || a.Token != "t1" {
+		t.Errorf("alice lost: %+v", a)
+	}
+	if a := f.Find("https://s", "bob"); a == nil || a.Token != "t2" {
+		t.Errorf("bob lost: %+v", a)
+	}
+	if _, err := f.Resolve("https://s", ""); err != ErrAmbiguousAccount {
+		t.Errorf("Resolve without username = %v, want ErrAmbiguousAccount", err)
+	}
+	if a, err := f.Resolve("https://s", "bob"); err != nil || a.Token != "t2" {
+		t.Errorf("Resolve bob = %+v, %v", a, err)
+	}
+	if _, err := f.Resolve("https://other", ""); err != ErrNoAccount {
+		t.Errorf("Resolve unknown server = %v, want ErrNoAccount", err)
+	}
+}
+
+func TestLoadV1MigratesToV2WithoutLoss(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lumi", "accounts.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	v1 := `# old header
+accounts:
+    - server: HTTPS://Lumi.Work.Example:443/
+      username: alice
+      user_id: u-1
+      display_name: Alice
+      token: tok-1
+      expires_at: 2026-12-01T00:00:00Z
+      added_at: 2026-05-22T12:00:00Z
+    - server: http://localhost:8080
+      username: bob
+      token: tok-2
+      added_at: 2026-05-21T12:00:00Z
+`
+	if err := os.WriteFile(path, []byte(v1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+	if f.Version != 0 {
+		t.Errorf("v1 file should load with Version 0, got %d", f.Version)
+	}
+	a := f.Find("https://lumi.work.example", "alice")
+	if a == nil || a.Token != "tok-1" || a.UserID != "u-1" || a.DisplayName != "Alice" || a.ExpiresAt.IsZero() {
+		t.Fatalf("alice not migrated intact: %+v", a)
+	}
+	if a.Server != "https://lumi.work.example" {
+		t.Errorf("server not normalised: %q", a.Server)
+	}
+	if b := f.Find("http://localhost:8080", "bob"); b == nil || b.Token != "tok-2" {
+		t.Fatalf("bob lost: %+v", b)
+	}
+	if err := f.SaveTo(path); err != nil {
+		t.Fatalf("SaveTo: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), "version: 2") {
+		t.Errorf("saved file missing version: 2:\n%s", data)
+	}
+	info, _ := os.Stat(path)
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("perm = %o, want 0600", info.Mode().Perm())
+	}
+	again, err := LoadFrom(path)
+	if err != nil || len(again.Accounts) != 2 || again.Version != 2 {
+		t.Fatalf("reload: %+v, %v", again, err)
+	}
+}
+
+func TestSaveCreatesDirWith0700(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "fresh", "accounts.yaml")
+	f := &File{}
+	f.Upsert(Account{Server: "https://x", Username: "y", Token: "z"})
+	if err := f.SaveTo(path); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Errorf("dir perm = %o, want 0700", info.Mode().Perm())
+	}
+}
+
+func TestNormalizeServerURL(t *testing.T) {
+	cases := map[string]string{
+		"https://Lumi.Work.com/":       "https://lumi.work.com",
+		"HTTPS://lumi.work.com:443":    "https://lumi.work.com",
+		"http://localhost:80/":         "http://localhost",
+		"http://localhost:8080":        "http://localhost:8080",
+		"https://x.com/lumi/?q=1#frag": "https://x.com/lumi",
+		"  https://x.com/Lumi  ":       "https://x.com/Lumi",
+		"https://[::1]:443/":           "https://[::1]",
+	}
+	for in, want := range cases {
+		got, err := NormalizeServerURL(in)
+		if err != nil || got != want {
+			t.Errorf("NormalizeServerURL(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"", "ftp://x", "https://"} {
+		if _, err := NormalizeServerURL(bad); err == nil {
+			t.Errorf("NormalizeServerURL(%q) should fail", bad)
+		}
 	}
 }
 
@@ -154,13 +271,13 @@ func TestRemove(t *testing.T) {
 		{Server: "https://a"},
 		{Server: "https://b"},
 	}}
-	if !f.Remove("https://a") {
+	if !f.Remove("https://a", "") {
 		t.Errorf("expected remove to return true")
 	}
 	if len(f.Accounts) != 1 || f.Accounts[0].Server != "https://b" {
 		t.Errorf("expected only b to remain, got %+v", f.Accounts)
 	}
-	if f.Remove("https://missing") {
+	if f.Remove("https://missing", "") {
 		t.Errorf("expected remove of missing to return false")
 	}
 }

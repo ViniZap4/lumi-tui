@@ -166,6 +166,11 @@ func splitServerAndSlug(combined string) (string, string, error) {
 
 // runVaultCloneCmd implements `lumi vault clone`.
 func runVaultCloneCmd(args []string, stdout, stderr io.Writer) int {
+	args, accountFlag, aerr := splitAccountFlag(args)
+	if aerr != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", aerr)
+		return 64
+	}
 	opts, err := parseCloneArgs(args)
 	if err != nil {
 		if err == errCloneHelp {
@@ -178,22 +183,8 @@ func runVaultCloneCmd(args []string, stdout, stderr io.Writer) int {
 	}
 
 	// Find an account for the server. Without one we can't authenticate.
-	file, err := account.Load()
-	if err != nil {
-		fmt.Fprintf(stderr, "Error reading accounts.yaml: %v\n", err)
-		return 1
-	}
-	var acc *account.Account
-	for i, a := range file.Accounts {
-		if strings.EqualFold(a.Server, opts.Server) {
-			acc = &file.Accounts[i]
-			break
-		}
-	}
-	if acc == nil {
-		fmt.Fprintf(stderr,
-			"Error: no signed-in account for %s. Run 'lumi login %s' first.\n",
-			opts.Server, opts.Server)
+	acc, code := lookupAccount(opts.Server, accountFlag, stderr)
+	if code != 0 {
 		return 1
 	}
 	if acc.IsExpired() {

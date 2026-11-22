@@ -24,8 +24,10 @@ Usage:
   given server, and stores the returned session token in
   ~/.config/lumi/accounts.yaml at 0600 permissions.
 
-  Re-running 'lumi login' for a server you're already signed in to
-  overwrites the existing entry with the new token.
+  Re-running 'lumi login' as the same user on the same server replaces
+  that entry's token. Signing in as a different user on the same server
+  adds a second account (accounts.yaml v2, keyed by server + username);
+  pass --account <username> to server commands to pick one.
 `
 
 // runLoginCmd executes the 'login' subcommand. Returns the process exit

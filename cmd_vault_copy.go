@@ -68,6 +68,11 @@ func parseCopyArgs(args []string) (copyOpts, error) {
 
 // runVaultCopyCmd implements `lumi vault copy`.
 func runVaultCopyCmd(args []string, stdout, stderr io.Writer) int {
+	args, accountFlag, aerr := splitAccountFlag(args)
+	if aerr != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", aerr)
+		return 64
+	}
 	opts, err := parseCopyArgs(args)
 	if err != nil {
 		if err == errCopyHelp {
@@ -82,7 +87,7 @@ func runVaultCopyCmd(args []string, stdout, stderr io.Writer) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	client, vault, code := resolveRemoteVault(ctx, opts.Server, opts.Slug, stderr)
+	client, vault, code := resolveRemoteVault(ctx, opts.Server, accountFlag, opts.Slug, stderr)
 	if code != 0 {
 		return code
 	}

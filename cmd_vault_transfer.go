@@ -108,23 +108,9 @@ func promptYesNo(in io.Reader, out io.Writer, prompt string) (bool, error) {
 // it writes a friendly message to stderr and returns a non-zero exit
 // code; on success the exit code is 0 and client+vault are non-nil.
 // Shared by `vault transfer` and `vault copy`.
-func resolveRemoteVault(ctx context.Context, server, slug string, stderr io.Writer) (*account.Client, *account.RemoteVault, int) {
-	file, err := account.Load()
-	if err != nil {
-		fmt.Fprintf(stderr, "Error reading accounts.yaml: %v\n", err)
-		return nil, nil, 1
-	}
-	var acc *account.Account
-	for i, a := range file.Accounts {
-		if strings.EqualFold(a.Server, server) {
-			acc = &file.Accounts[i]
-			break
-		}
-	}
-	if acc == nil {
-		fmt.Fprintf(stderr,
-			"Error: no signed-in account for %s. Run 'lumi login %s' first.\n",
-			server, server)
+func resolveRemoteVault(ctx context.Context, server, accountFlag, slug string, stderr io.Writer) (*account.Client, *account.RemoteVault, int) {
+	acc, code := lookupAccount(server, accountFlag, stderr)
+	if code != 0 {
 		return nil, nil, 1
 	}
 	if acc.IsExpired() {
@@ -158,6 +144,11 @@ func resolveRemoteVault(ctx context.Context, server, slug string, stderr io.Writ
 
 // runVaultTransferCmd implements `lumi vault transfer`.
 func runVaultTransferCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	args, accountFlag, aerr := splitAccountFlag(args)
+	if aerr != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", aerr)
+		return 64
+	}
 	opts, err := parseTransferArgs(args)
 	if err != nil {
 		if err == errTransferHelp {
@@ -172,7 +163,7 @@ func runVaultTransferCmd(args []string, stdin io.Reader, stdout, stderr io.Write
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	client, vault, code := resolveRemoteVault(ctx, opts.Server, opts.Slug, stderr)
+	client, vault, code := resolveRemoteVault(ctx, opts.Server, accountFlag, opts.Slug, stderr)
 	if code != 0 {
 		return code
 	}
