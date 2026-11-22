@@ -7,15 +7,15 @@ import (
 )
 
 // NoteSnapshot is the wire shape returned by the server's snapshot and
-// diff endpoints. `VectorClock` is base64-encoded; callers carry it as
-// an opaque string and round-trip it back to the server on the next
-// diff. Slice 2.2 treats `base_clock` as advisory — it'll become
-// load-bearing once strict-conflict mode lands server-side.
+// diff endpoints. `VectorClock` and `State` are base64-encoded and
+// carried as opaque strings. `State` (the full encoded Yjs document) is
+// only present on GET /snapshot; it is the base of a 3-way PushEdit.
 type NoteSnapshot struct {
 	ID          string `json:"id"`
 	Path        string `json:"path"`
 	Text        string `json:"text"`
 	VectorClock string `json:"vector_clock"`
+	State       string `json:"state,omitempty"`
 }
 
 // GetNoteSnapshot pulls the CRDT-anchored snapshot for one note. The

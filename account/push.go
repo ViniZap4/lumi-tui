@@ -1,30 +1,108 @@
 package account
 
-import "context"
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+)
 
 // EditBase is what the user's edit was based on: the snapshot fetched
-// before the edit started (CRDT-CLIENT-PROTOCOL §7.1 step 1). State is the
-// Yjs state of that version, once the server exposes it (§10 S11).
+// before the edit started (CRDT-CLIENT-PROTOCOL §7.1 step 1).
+//
+// State is the base64 full Yjs state from GET /snapshot `state`. It is
+// what makes the push a real 3-way merge: the server rebuilds the base
+// document from it, diffs Text → edited on that base and merges the
+// resulting ops into the current document, so concurrent remote edits
+// survive (protocol §7.2, vector V9b).
 type EditBase struct {
 	Text        string
 	VectorClock string
-	State       []byte
+	State       string
+}
+
+// PushOrigin is the origin label the TUI's 3-way pushes carry.
+const PushOrigin = "tui"
+
+// ErrBaseRequired is returned by PushEdit when the server answers
+// 409 base_required (no usable base), and locally when the caller has no
+// base state at all — the TUI never sends bare text, because the server
+// would have nothing to merge against (vector V9a).
+var ErrBaseRequired = errors.New("base_required")
+
+// ErrBaseMismatch is returned by PushEdit on 409 base_mismatch: the base
+// state carries changes the server does not descend from (server reset,
+// switched replica). The caller must re-pull before pushing again.
+var ErrBaseMismatch = errors.New("base_mismatch")
+
+// IsBaseConflict reports whether err is one of the two 409s that mean
+// "re-pull the snapshot before pushing again".
+func IsBaseConflict(err error) bool {
+	return errors.Is(err, ErrBaseRequired) || errors.Is(err, ErrBaseMismatch)
+}
+
+// baseConflictError keeps the server's *APIError reachable (errors.As)
+// while matching the sentinel (errors.Is).
+type baseConflictError struct {
+	sentinel error
+	api      *APIError
+}
+
+func (e *baseConflictError) Error() string {
+	if e.api == nil {
+		return e.sentinel.Error()
+	}
+	return e.api.Error()
+}
+func (e *baseConflictError) Is(target error) bool { return target == e.sentinel }
+func (e *baseConflictError) Unwrap() error {
+	if e.api == nil {
+		return nil
+	}
+	return e.api
+}
+
+type pushEditRequest struct {
+	Text      string `json:"text"`
+	BaseState string `json:"base_state"`
+	Origin    string `json:"origin"`
 }
 
 // PushEdit is the single seam through which the TUI sends an edited note
-// body to the server. Every push path (lumi vault sync today; the feed's
-// pending-edit flush later) must go through here so the 3-way fix lands in
-// one place.
+// body to the server. Every push path (lumi vault sync, the feed's
+// pending-edit flush, the mirror's dirty-note merge) goes through here.
 //
-// TODO(SPEC-LIVROS §6 T3, CRDT-CLIENT-PROTOCOL §7.1/§7.2): this still
-// calls POST /diff with {text, base_clock}, which the server applies as a
-// diff against its CURRENT text — concurrent remote edits the user never
-// saw can be deleted (protocol vector V9a). Once the server's ApplyDiff
-// honours the base (branch fix/wave1-security, protocol §10 S1), send
-// {text, base_state: base64(base.State) | base_clock: base.VectorClock,
-// origin: "tui"} so the server merges edited-vs-base. Until then, keep the
-// .base cache + "pending" status (SPEC-LIVROS §4.2) unimplemented: there
-// is nothing correct to retry.
+// It sends POST /diff {text, base_state, origin: "tui"}: the server does
+// the 3-way merge of CRDT-CLIENT-PROTOCOL §7.1 steps 4–6 itself (§7.2,
+// §10 S1), so the TUI needs no CRDT library. The returned snapshot holds
+// the merged text and new vector clock (the server's /diff reply carries
+// no `state`; callers re-fetch GET /snapshot for the next base).
+//
+// 409 base_required / base_mismatch come back as ErrBaseRequired /
+// ErrBaseMismatch. A base without State never reaches the wire.
 func (c *Client) PushEdit(ctx context.Context, vaultID, noteID string, base EditBase, edited string) (*NoteSnapshot, error) {
-	return c.ApplyNoteDiff(ctx, vaultID, noteID, base.VectorClock, edited, "tui-diff")
+	if vaultID == "" || noteID == "" {
+		return nil, fmt.Errorf("PushEdit: vaultID and noteID are required")
+	}
+	if base.State == "" {
+		return nil, &baseConflictError{sentinel: ErrBaseRequired}
+	}
+	path := fmt.Sprintf("/api/vaults/%s/notes/%s/diff",
+		url.PathEscape(vaultID), url.PathEscape(noteID))
+	var resp NoteSnapshot
+	err := c.do(ctx, "POST", path, pushEditRequest{Text: edited, BaseState: base.State, Origin: PushOrigin}, true, &resp)
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.Status == http.StatusConflict {
+		switch apiErr.Code {
+		case "base_required":
+			return nil, &baseConflictError{sentinel: ErrBaseRequired, api: apiErr}
+		case "base_mismatch":
+			return nil, &baseConflictError{sentinel: ErrBaseMismatch, api: apiErr}
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
