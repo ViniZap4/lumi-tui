@@ -456,3 +456,33 @@ var (
 	_ ChangesAPI = (*account.Client)(nil)
 	_ VaultAPI   = (*account.Client)(nil)
 )
+
+// SetActive records the active book in books.yaml (TUI-only `active`).
+func (m *Manager) SetActive(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.store.Registry.SetActive(id, m.Now()); err != nil {
+		return err
+	}
+	return m.store.Save()
+}
+
+// Move reorders a book in picker order (J/K) and saves.
+func (m *Manager) Move(id string, delta int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.store.Registry.Move(id, delta) {
+		return nil
+	}
+	return m.store.Save()
+}
+
+// BookByPath returns the registered book whose folder is absPath.
+func (m *Manager) BookByPath(absPath string) (books.Book, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if b := m.store.Registry.ByPath(absPath); b != nil {
+		return *b, true
+	}
+	return books.Book{}, false
+}

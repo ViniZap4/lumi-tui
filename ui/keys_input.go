@@ -99,12 +99,6 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return m, m.loadItems
 				}
 			}
-		case "config_server_url", "config_server_token":
-			key := m.inputMode[len("config_"):]
-			m.applyConfigChange(key, m.inputValue)
-			m.showInput = false
-			m.inputValue = ""
-			return m, nil
 		}
 		m.showInput = false
 		m.inputValue = ""

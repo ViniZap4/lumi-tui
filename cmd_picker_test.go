@@ -6,7 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/vinizap/lumi/tui-client/account"
+	"github.com/vinizap/lumi/tui-client/books"
 )
 
 func TestShouldRunVaultPicker(t *testing.T) {
@@ -34,12 +34,12 @@ func TestShouldRunVaultPicker(t *testing.T) {
 	}
 }
 
-func sampleVaults() []account.VaultEntry {
+func sampleVaults() []books.Book {
 	now := time.Now()
-	return []account.VaultEntry{
-		{ID: "a", Name: "work", Path: "/home/u/work", AddedAt: now},
-		{ID: "b", Name: "personal", Path: "/home/u/personal", Server: "https://lumi.work.com", Account: "alice", AddedAt: now.Add(-time.Hour)},
-		{ID: "c", Name: "side", Path: "/home/u/side", AddedAt: now.Add(-2 * time.Hour)},
+	return []books.Book{
+		{ID: "a", Name: "work", Kind: books.KindLocal, Path: "/home/u/work", AddedAt: now},
+		{ID: "b", Name: "personal", Kind: books.KindBound, Path: "/home/u/personal", ServerURL: "https://lumi.work.com", Account: "alice", AddedAt: now.Add(-time.Hour)},
+		{ID: "c", Name: "side", Kind: books.KindLocal, Path: "/home/u/side", AddedAt: now.Add(-2 * time.Hour)},
 	}
 }
 
@@ -154,7 +154,7 @@ func TestVaultPickerQCancels(t *testing.T) {
 func TestVaultPickerViewRendersAllRows(t *testing.T) {
 	m := newVaultPickerModel(sampleVaults())
 	out := m.View()
-	for _, want := range []string{"work", "personal", "side", "/home/u/work", "alice@", "Pick a vault"} {
+	for _, want := range []string{"work", "personal", "side", "/home/u/work", "alice@", "Pick a book"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("view missing %q\n---\n%s", want, out)
 		}

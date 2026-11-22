@@ -5,11 +5,12 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/vinizap/lumi/tui-client/account"
+	"github.com/vinizap/lumi/tui-client/books"
 )
 
 // vaultPickerModel is a tiny bubbletea program that shows the user the
-// vaults registered in `~/.config/lumi/vaults.yaml` and lets them pick
+// books registered in `~/.config/lumi/books.yaml` (SPEC-LIVROS §5; it
+// imports vaults.yaml once) that have a folder here, and lets them pick
 // one before the main TUI launches. It runs only when the user invoked
 // `lumi` with no path argument and no $LUMI_NOTES_DIR — i.e. the
 // shell-less "where did I leave off" case.
@@ -20,13 +21,13 @@ import (
 // downstream key/Update path. A separate ~150-line tea.Program is the
 // smaller change.
 type vaultPickerModel struct {
-	vaults []account.VaultEntry
+	vaults []books.Book
 	cursor int
 
 	// terminated by the user. `chosen` is non-nil when the user pressed
 	// Enter on a row; `cancelled` is true when they pressed q / ESC.
 	// Both nil/false until then.
-	chosen    *account.VaultEntry
+	chosen    *books.Book
 	cancelled bool
 
 	width  int
@@ -35,7 +36,7 @@ type vaultPickerModel struct {
 
 // newVaultPickerModel takes a non-empty vault list. Caller is responsible
 // for falling back to the splash when no vaults are registered.
-func newVaultPickerModel(vaults []account.VaultEntry) vaultPickerModel {
+func newVaultPickerModel(vaults []books.Book) vaultPickerModel {
 	return vaultPickerModel{vaults: vaults}
 }
 
@@ -63,6 +64,12 @@ func (m vaultPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cursor = 0
 		case "end", "G":
 			m.cursor = len(m.vaults) - 1
+		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+			if i := int(msg.String()[0] - '1'); i < len(m.vaults) {
+				v := m.vaults[i]
+				m.chosen = &v
+				return m, tea.Quit
+			}
 		case "enter":
 			if m.cursor >= 0 && m.cursor < len(m.vaults) {
 				v := m.vaults[m.cursor]
@@ -79,21 +86,25 @@ func (m vaultPickerModel) View() string {
 		return "No vaults to pick.\n"
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Pick a vault  (%d available — j/k to move, enter to open, q to skip)\n\n", len(m.vaults))
+	fmt.Fprintf(&b, "Pick a book  (%d available — j/k to move, enter to open, q to skip)\n\n", len(m.vaults))
 	for i, v := range m.vaults {
 		marker := "  "
 		if i == m.cursor {
 			marker = "▸ "
 		}
 		bind := "local"
-		if v.IsServerBound() {
-			bind = redactURLPath(v.Server)
+		if v.IsBound() {
+			bind = redactURLPath(v.ServerURL)
 			if v.Account != "" {
 				bind = v.Account + "@" + bind
 			}
 		}
-		fmt.Fprintf(&b, "%s%-30s  %s\n", marker, truncateMiddle(v.Name, 30), bind)
-		fmt.Fprintf(&b, "    %s\n", v.Path)
+		num := "  "
+		if i < 9 {
+			num = fmt.Sprintf("%d ", i+1)
+		}
+		fmt.Fprintf(&b, "%s%s%-30s  %s\n", marker, num, truncateMiddle(v.Name, 30), bind)
+		fmt.Fprintf(&b, "      %s\n", v.Path)
 	}
 	return b.String()
 }
@@ -103,7 +114,7 @@ func (m vaultPickerModel) View() string {
 // the user cancelled (in which case the caller should fall back to the
 // splash). An error means the program failed to run — treat as a
 // cancellation (so we don't strand the user with no UI).
-func runVaultPicker(vaults []account.VaultEntry) (*account.VaultEntry, error) {
+func runVaultPicker(vaults []books.Book) (*books.Book, error) {
 	if len(vaults) == 0 {
 		return nil, nil
 	}

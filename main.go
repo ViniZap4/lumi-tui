@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/vinizap/lumi/tui-client/account"
+	"github.com/vinizap/lumi/tui-client/books"
+	"github.com/vinizap/lumi/tui-client/feed"
 	"github.com/vinizap/lumi/tui-client/ui"
 )
 
@@ -62,25 +65,30 @@ func main() {
 		os.Exit(exitCode)
 	}
 
+	// Book registry (books.yaml; imported once from vaults.yaml). A
+	// failure here never blocks opening notes.
+	store, berr := books.Open()
+	if berr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: books.yaml: %v\n", berr)
+		store = &books.Store{Registry: &books.Registry{}}
+	}
+
 	// Splash screen only when the user gave lumi no hint at all (no CLI
 	// arg AND no $LUMI_NOTES_DIR). In that case, before falling back to
-	// "splash on cwd", offer the vault picker if vaults.yaml has any
-	// entries — Apple-client users will usually have at least one,
-	// even before they've signed in to a server.
+	// "splash on cwd", offer the book picker when there are books with a
+	// folder on this device.
 	if splash && initialNote == "" {
-		entries, err := account.LoadVaults()
-		if err == nil && shouldRunVaultPicker(splash, initialNote, len(entries)) {
-			picked, perr := runVaultPicker(entries)
+		var withFolder []books.Book
+		for _, b := range store.Registry.Books {
+			if b.Path != "" {
+				withFolder = append(withFolder, b)
+			}
+		}
+		if shouldRunVaultPicker(splash, initialNote, len(withFolder)) {
+			picked, perr := runVaultPicker(withFolder)
 			if perr == nil && picked != nil {
-				rootDir = picked.Path
+				rootDir = picked.AbsPath()
 				splash = false
-				// Picker selection counts as opening — bump
-				// last_opened_at so the next session ranks this vault
-				// first. Best-effort; a write failure is logged via
-				// stderr but doesn't block startup.
-				if _, berr := account.BumpLastOpenedAt(picked.ID, time.Now()); berr != nil {
-					fmt.Fprintf(os.Stderr, "Warning: could not update last_opened_at: %v\n", berr)
-				}
 			}
 			// Cancellation or loader error → fall through to splash so
 			// the user is never blocked by a misbehaving registry.
@@ -96,34 +104,55 @@ func main() {
 		}
 	}
 
-	// `lumi <dir>` opening a directory that matches a registered vault
-	// also counts as opening. (Picker path already bumped above by id;
-	// this branch matches by absolute path.) No-op when no row matches.
-	if !splash {
-		if _, berr := account.BumpLastOpenedAt(rootDir, time.Now()); berr != nil {
-			// Don't spam stderr in the common "no match" case — only
-			// surface real I/O failures. Bump returns (false, nil) for
-			// the no-match path, so `err != nil` here is a genuine
-			// write error worth flagging.
-			fmt.Fprintf(os.Stderr, "Warning: could not update last_opened_at: %v\n", berr)
+	// Legacy per-folder token (<root>/.lumi/config.yaml) → accounts.yaml,
+	// then scrub it from the folder (SPEC-LIVROS §2.5). Best-effort.
+	importFolderToken(rootDir, os.Stderr)
+
+	accounts := []account.Account{}
+	if f, err := account.Load(); err == nil {
+		accounts = f.Accounts
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	mgr := feed.NewManager(store, accounts)
+	mgr.Start(ctx)
+
+	for {
+		activeID := ""
+		if !splash {
+			if b, ok := mgr.BookByPath(rootDir); ok {
+				activeID = b.ID
+				// Opening a book counts as using it (active + last_opened_at).
+				if store.Registry.ReadOnly {
+					// never rewrite a newer books.yaml
+				} else if err := mgr.SetActive(b.ID); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: could not update books.yaml: %v\n", err)
+				}
+			}
+			// Keep vaults.yaml's last_opened_at fresh for older clients.
+			_, _ = account.BumpLastOpenedAt(rootDir, time.Now())
 		}
-	}
 
-	var model ui.Model
-	if splash && initialNote == "" {
-		model = ui.NewSimpleModel(rootDir)
-	} else {
-		model = ui.NewModelWithInitialNote(rootDir, initialNote)
-	}
+		var model ui.Model
+		if splash && initialNote == "" {
+			model = ui.NewSimpleModel(rootDir)
+		} else {
+			model = ui.NewModelWithInitialNote(rootDir, initialNote)
+		}
+		model = model.WithBooks(mgr, activeID)
 
-	p := tea.NewProgram(
-		model,
-		tea.WithAltScreen(),
-	)
-
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		p := tea.NewProgram(model, tea.WithAltScreen())
+		final, err := p.Run()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		// `gb` / `g1`–`g9` picked another book: restart the model on it.
+		if fm, ok := final.(ui.Model); ok && fm.SwitchTarget() != "" {
+			rootDir, initialNote, splash = fm.SwitchTarget(), "", false
+			continue
+		}
+		return
 	}
 }
 

@@ -17,7 +17,11 @@ func (m Model) View() string {
 	var content string
 
 	// Confirm modal overlay (highest priority)
-	if m.showConfirm {
+	if m.showBooks && m.bookMgr != nil {
+		content = m.renderBooksPicker()
+	} else if m.showBookDetails && m.bookMgr != nil {
+		content = m.renderBookDetails()
+	} else if m.showConfirm {
 		content = m.renderWithConfirmModal(m.renderBase())
 	} else if m.showInput {
 		content = m.renderWithInputModal(m.renderBase())
@@ -176,6 +180,7 @@ func (m Model) renderCommandBar() string {
 				{"d", "delete"},
 				{"m", "move"},
 				{"/", "search"},
+				{"gb", "livros"},
 				{"q", "quit"},
 			}
 		case ViewFullNote:
@@ -210,7 +215,17 @@ func (m Model) renderCommandBar() string {
 		parts = append(parts, key+desc)
 	}
 
-	return lipgloss.NewStyle().Padding(0, 1).Render(strings.Join(parts, "  "))
+	bar := strings.Join(parts, "  ")
+	if seg := m.renderBookSegment(); seg != "" {
+		// Right-align the book status segment when there is room.
+		gap := m.width - 2 - lipgloss.Width(bar) - lipgloss.Width(seg)
+		if gap >= 2 {
+			bar += strings.Repeat(" ", gap) + seg
+		} else {
+			bar = seg + "  " + bar
+		}
+	}
+	return lipgloss.NewStyle().Padding(0, 1).Render(bar)
 }
 
 func (m Model) renderBase() string {

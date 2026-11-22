@@ -4,7 +4,7 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/vinizap/lumi/tui-client/config"
 	"github.com/vinizap/lumi/tui-client/domain"
-	"github.com/vinizap/lumi/tui-client/sync"
+	"github.com/vinizap/lumi/tui-client/feed"
 	"github.com/vinizap/lumi/tui-client/theme"
 )
 
@@ -158,8 +158,17 @@ type Model struct {
 	pendingMoveNote   *domain.Note
 	pendingMoveFolder string
 
-	// Real-time sync
-	syncClient *sync.Client
+	// Books (SPEC-LIVROS): registry + per-account feed. Nil when the
+	// model runs without a manager (tests, single-file mode).
+	bookMgr         *feed.Manager
+	activeBookID    string
+	showBooks       bool
+	bookCursor      int
+	showBookDetails bool
+	lastMirrorGen   uint64
+	// switchTo is set when the user picked another book: the program
+	// quits and main restarts the model on that folder.
+	switchTo string
 
 	// Toast notifications
 	toastMsg   string
@@ -188,7 +197,6 @@ func NewModel(rootDir string) Model {
 	ApplyTheme()
 
 	folderCfg := config.LoadFolderConfig(rootDir)
-	syncCli := sync.NewClient(folderCfg)
 
 	renderer, _ := glamour.NewTermRenderer(
 		glamour.WithStylePath(glamourStyle()),
@@ -204,7 +212,6 @@ func NewModel(rootDir string) Model {
 		renderer:     renderer,
 		searchType:   cfg.SearchType,
 		folderConfig: folderCfg,
-		syncClient:   syncCli,
 	}
 }
 

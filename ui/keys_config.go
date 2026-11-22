@@ -29,20 +29,6 @@ func (m Model) buildConfigItems(cfg *config.Config) []ConfigItem {
 		editorFull += " " + strings.Join(cfg.EditorArgs, " ")
 	}
 
-	serverURL := ""
-	serverToken := ""
-	if m.folderConfig != nil {
-		serverURL = m.folderConfig.ServerURL
-		serverToken = m.folderConfig.ServerToken
-	}
-	if serverURL == "" {
-		serverURL = "(none)"
-	}
-	tokenDisplay := "(none)"
-	if serverToken != "" {
-		tokenDisplay = strings.Repeat("*", len(serverToken))
-	}
-
 	return []ConfigItem{
 		{Label: "Theme", Kind: ConfigHeader},
 		{Label: "Mode", Kind: ConfigCycle, Key: "theme_mode", Value: cfg.ThemeMode, Options: []string{"dark", "light", "auto"}},
@@ -61,9 +47,9 @@ func (m Model) buildConfigItems(cfg *config.Config) []ConfigItem {
 		{Label: "Search", Kind: ConfigHeader},
 		{Label: "Default type", Kind: ConfigCycle, Key: "default_search_type", Value: cfg.SearchType, Options: []string{"filename", "content"}},
 
-		{Label: "Server (.lumi)", Kind: ConfigHeader},
-		{Label: "Server URL", Kind: ConfigInput, Key: "server_url", Value: serverURL},
-		{Label: "Server token", Kind: ConfigInput, Key: "server_token", Value: tokenDisplay},
+		// Server accounts live in ~/.config/lumi/accounts.yaml (lumi
+		// login) and books in books.yaml (gb / lumi books). Tokens are
+		// never stored in a notes folder (SPEC-LIVROS §2.5).
 	}
 }
 
@@ -126,10 +112,6 @@ func (m Model) configCycleForward() (Model, tea.Cmd) {
 		} else {
 			m.inputValue = item.Value
 		}
-		// For server_token, show actual value in input
-		if item.Key == "server_token" && m.folderConfig != nil {
-			m.inputValue = m.folderConfig.ServerToken
-		}
 		return m, nil
 	}
 	return m, nil
@@ -173,23 +155,6 @@ func (m *Model) applyConfigChange(key, value string) {
 	case "default_search_type":
 		cfg.SearchType = value
 		m.searchType = value
-	case "server_url":
-		if m.folderConfig != nil {
-			if value == "(none)" {
-				value = ""
-			}
-			m.folderConfig.ServerURL = value
-			config.SaveFolderConfig(m.rootDir, m.folderConfig)
-			m.configItems = m.buildConfigItems(cfg)
-		}
-		return
-	case "server_token":
-		if m.folderConfig != nil {
-			m.folderConfig.ServerToken = value
-			config.SaveFolderConfig(m.rootDir, m.folderConfig)
-			m.configItems = m.buildConfigItems(cfg)
-		}
-		return
 	}
 
 	cfg.Save()

@@ -1,8 +1,6 @@
 package ui
 
 import (
-	"fmt"
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -23,9 +21,8 @@ func animTick() tea.Cmd {
 
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.loadItems, animTick()}
-	if m.syncClient != nil {
-		m.syncClient.Start()
-		cmds = append(cmds, m.waitForSyncEvent, m.waitForSyncStatus)
+	if m.bookMgr != nil {
+		cmds = append(cmds, m.waitForBooks)
 	}
 	return tea.Batch(cmds...)
 }
@@ -122,40 +119,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case syncConnectedMsg:
-		cmd := m.showToast("Server connected", ToastSuccess, 3*time.Second)
-		return m, tea.Batch(cmd, m.waitForSyncStatus)
-
-	case syncErrorMsg:
-		toastText := classifySyncError(msg.err)
-		cmd := m.showToast(toastText, ToastError, 4*time.Second)
-		return m, tea.Batch(cmd, m.waitForSyncStatus)
-
-	case syncDroppedMsg:
-		// Some sync events were dropped — prompt the user to refresh so
-		// the on-screen list isn't silently stale. We also do an
-		// implicit reload here because users rarely act on warnings.
-		toast := fmt.Sprintf("Sync: %d event(s) lost — refreshing", msg.count)
-		cmd := m.showToast(toast, ToastError, 4*time.Second)
-		return m, tea.Batch(cmd, m.loadItems, m.waitForSyncStatus)
-
-	case syncEventMsg:
-		// A note was changed on the server — reload items.
-		// If viewing a note that was updated, re-read it.
-		if m.fullNote != nil && msg.event.Type == "note_updated" {
-			reloaded, err := filesystem.ReadNote(m.fullNote.Path)
-			if err == nil {
-				m.openNote(reloaded)
-			}
-		}
-		cmds := []tea.Cmd{m.loadItems, m.waitForSyncEvent}
-		// Also refresh nav modal items if it's open
-		if m.showNav {
-			cmds = append(cmds, m.loadNavItems)
-		}
-		return m, tea.Batch(cmds...)
+	case booksChangedMsg:
+		return m.onBooksChanged()
 
 	case tea.KeyMsg:
+		if m.showBooks {
+			return m.updateBooksPicker(msg)
+		}
+		if m.showBookDetails {
+			m.showBookDetails = false
+			return m, nil
+		}
 		if m.showConfirm {
 			return m.updateConfirm(msg)
 		}
@@ -176,30 +150,4 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
-}
-
-// classifySyncError returns a user-friendly toast message for sync errors.
-func classifySyncError(err error) string {
-	if err == nil {
-		return "Sync: unknown error"
-	}
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, "connection refused"):
-		return "Sync: connection refused"
-	case strings.Contains(msg, "no such host"):
-		return "Sync: server not found"
-	case strings.Contains(msg, "401") || strings.Contains(msg, "403"):
-		return "Sync: auth failed"
-	case strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline exceeded"):
-		return "Sync: timeout"
-	case strings.Contains(msg, "EOF") || strings.Contains(msg, "connection reset"):
-		return "Sync: connection lost"
-	default:
-		text := "Sync: " + msg
-		if len(text) > 45 {
-			text = text[:42] + "..."
-		}
-		return text
-	}
 }

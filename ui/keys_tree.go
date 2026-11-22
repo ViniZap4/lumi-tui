@@ -31,6 +31,16 @@ func (m Model) updateTree(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "zp": // toggle the preview column (session-only)
 			m.previewHidden = !m.previewHidden
 			return m, nil
+		case "gb": // book picker (SPEC-LIVROS §5)
+			m.openBooksPicker()
+			return m, nil
+		case "gs": // book sync details (SPEC-LIVROS §4.3)
+			if m.bookMgr != nil {
+				m.showBookDetails = true
+			}
+			return m, nil
+		case "g1", "g2", "g3", "g4", "g5", "g6", "g7", "g8", "g9":
+			return m.switchToBook(int(msg.String()[0] - '1'))
 		}
 	}
 

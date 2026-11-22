@@ -13,7 +13,6 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/vinizap/lumi/tui-client/domain"
 	"github.com/vinizap/lumi/tui-client/filesystem"
-	"github.com/vinizap/lumi/tui-client/sync"
 	"github.com/vinizap/lumi/tui-client/theme"
 )
 
@@ -51,11 +50,6 @@ type searchResultsMsg struct {
 	gen     int // generation stamp; Update drops results whose gen != m.searchGen
 }
 
-// syncEventMsg wraps a sync event from the WebSocket connection.
-type syncEventMsg struct {
-	event sync.Event
-}
-
 // editorDoneMsg is sent after the editor exits so the note is re-read from disk.
 type editorDoneMsg struct {
 	notePath string
@@ -64,20 +58,6 @@ type editorDoneMsg struct {
 // toastDismissMsg auto-dismisses a toast after a timeout.
 type toastDismissMsg struct {
 	id int
-}
-
-// syncConnectedMsg signals that the WebSocket connected successfully.
-type syncConnectedMsg struct{}
-
-// syncErrorMsg signals a WebSocket connection failure.
-type syncErrorMsg struct {
-	err error
-}
-
-// syncDroppedMsg signals that one or more sync events were dropped
-// because the consumer fell behind. count is cumulative since start.
-type syncDroppedMsg struct {
-	count uint64
 }
 
 // --- Commands ---
@@ -91,37 +71,6 @@ func (m *Model) showToast(msg string, level ToastLevel, d time.Duration) tea.Cmd
 	return tea.Tick(d, func(time.Time) tea.Msg {
 		return toastDismissMsg{id: id}
 	})
-}
-
-// waitForSyncEvent blocks until a sync event is received from the server.
-func (m Model) waitForSyncEvent() tea.Msg {
-	if m.syncClient == nil {
-		return nil
-	}
-	evt, ok := <-m.syncClient.Events()
-	if !ok {
-		return nil
-	}
-	return syncEventMsg{event: evt}
-}
-
-// waitForSyncStatus blocks until a sync status change is received.
-func (m Model) waitForSyncStatus() tea.Msg {
-	if m.syncClient == nil {
-		return nil
-	}
-	status, ok := <-m.syncClient.Status()
-	if !ok {
-		return nil
-	}
-	switch status.Kind {
-	case sync.StatusConnected:
-		return syncConnectedMsg{}
-	case sync.StatusDropped:
-		return syncDroppedMsg{count: status.LostEvents}
-	default:
-		return syncErrorMsg{err: status.Err}
-	}
 }
 
 func (m Model) loadItems() tea.Msg {

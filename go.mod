@@ -7,7 +7,6 @@ require (
 	github.com/charmbracelet/bubbletea v0.25.0
 	github.com/charmbracelet/glamour v0.10.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
-	github.com/gorilla/websocket v1.5.3
 	github.com/mattn/go-runewidth v0.0.16
 	golang.org/x/term v0.31.0
 	gopkg.in/yaml.v3 v3.0.1
