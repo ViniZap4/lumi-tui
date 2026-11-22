@@ -141,7 +141,9 @@ func Run(ctx context.Context, cfg ConnConfig, out chan<- Update) {
 		case errors.Is(err, errDisabled):
 			state, wait = books.FeedDisabled, cfg.DisabledRetry
 		case errors.As(err, &ra):
-			wait = ra.d + cfg.Jitter(time.Second)
+			// A server-requested reconnect is "connecting", not a failure
+			// (web resolution): no backoff growth, no Offline flash cause.
+			state, wait = books.FeedConnecting, ra.d+cfg.Jitter(time.Second)
 		default:
 			wait = cfg.Jitter(Backoff(attempt, cfg.BaseBackoff, cfg.MaxBackoff))
 			attempt++

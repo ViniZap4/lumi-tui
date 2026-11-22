@@ -171,14 +171,17 @@ func BookStatus(in StatusInput) Status {
 	if in.Rest.Failures >= ErrorThreshold {
 		return Status{State: StateError, Reason: "o servidor está respondendo com erro"}
 	}
-	// 4. Offline. A `disabled` feed (server without /api/events) is not a
-	// disconnection: the book degrades to REST (shared case table).
-	if in.Feed == FeedConnecting || in.Feed == FeedBackoff || in.Rest.NetworkError {
+	// 4. Offline: any feed state other than open — including `disabled`
+	// (server without /api/events): with no feed and no polling the client
+	// cannot know it is up to date (web case table).
+	if in.Feed != FeedOpen || in.Rest.NetworkError {
 		return Status{State: StateOffline}
 	}
-	// 5. Sincronizando
+	// 5. Sincronizando (an editor OFFLINE while the feed is open is
+	// reconnecting, hence syncing — web case table)
 	if in.CatchUp.Phase == CatchUpRunning || in.CatchUp.Head > in.CatchUp.Cursor ||
-		in.Editor.State == EditorConnecting || in.Editor.State == EditorSyncing || in.Editor.Pending {
+		in.Editor.State == EditorConnecting || in.Editor.State == EditorSyncing ||
+		in.Editor.State == EditorOffline || in.Editor.Pending {
 		return Status{State: StateSyncing}
 	}
 	// 6. Somente leitura

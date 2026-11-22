@@ -1,0 +1,59 @@
+{
+  "source": "SPEC-LIVROS §4.1 / §4.2 — shared by web, Apple and TUI. Move to monorepo fixtures/ in C0.",
+  "precedence": "Não ligado → Precisa entrar → Erro → Offline → Sincronizando → Somente leitura → Atualizado.",
+  "spec_table": [
+    { "estado": "**Não ligado** / Local", "condicao": "`kind: local`", "indicador": "ícone de pasta, sem ponto" },
+    { "estado": "**Precisa entrar** / Sign in", "condicao": "Livro sem conta neste cliente, token ausente, 401 ou `session.ended`", "indicador": "ponto âmbar + botão \"Entrar\"" },
+    { "estado": "**Erro** / Error", "condicao": "3 falhas seguidas não transitórias (5xx, JSON inválido, `vault_id` nulo, `vault.revoked`), com motivo legível", "indicador": "ponto vermelho" },
+    { "estado": "**Offline**", "condicao": "Feed da conta desconectado, ou rede indisponível", "indicador": "ponto cinza vazado" },
+    { "estado": "**Sincronizando** / Syncing", "condicao": "Feed conectado e (`changes` em andamento, ou `head > cursor`, ou editor ativo em CONNECTING/SYNCING, ou edições locais ainda não confirmadas)", "indicador": "ponto pulsando" },
+    { "estado": "**Somente leitura** / Read-only", "condicao": "Atualizado e `can_edit = false`", "indicador": "cadeado" },
+    { "estado": "**Atualizado** / Up to date", "condicao": "Feed conectado, `cursor = head`, editor LIVE ou fechado, nada pendente", "indicador": "ponto verde" }
+  ],
+  "defaults": {
+    "book": { "kind": "bound", "vault_id": "v1", "can_edit": true, "revoked": null },
+    "accountFeed": { "state": "open" },
+    "catchUp": { "state": "idle", "failures": 0, "cursor": 5, "head": 5 },
+    "editor": { "state": "closed", "pending": false },
+    "restHealth": { "last": "ok", "nonTransientFailures": 0 }
+  },
+  "cases": [
+    { "name": "Não ligado: `kind: local`", "book": { "kind": "local", "vault_id": null }, "accountFeed": null, "expect": "not_bound" },
+    { "name": "Não ligado vence tudo (local mesmo com feed morto)", "book": { "kind": "local", "vault_id": null }, "accountFeed": { "state": "auth_dead" }, "expect": "not_bound" },
+
+    { "name": "Precisa entrar: Livro sem conta neste cliente", "accountFeed": null, "expect": "needs_login" },
+    { "name": "Precisa entrar: token ausente", "accountFeed": null, "catchUp": { "state": "running", "failures": 0, "cursor": 0, "head": 9 }, "expect": "needs_login" },
+    { "name": "Precisa entrar: 401", "restHealth": { "last": "auth", "nonTransientFailures": 0 }, "expect": "needs_login" },
+    { "name": "Precisa entrar: `session.ended`", "accountFeed": { "state": "auth_dead" }, "expect": "needs_login" },
+    { "name": "Precisa entrar vence Erro", "accountFeed": { "state": "auth_dead" }, "book": { "revoked": "removed" }, "expect": "needs_login" },
+
+    { "name": "Erro: `vault_id` nulo", "book": { "vault_id": null }, "expect": "error" },
+    { "name": "Erro: `vault.revoked`", "book": { "revoked": "removed" }, "expect": "error" },
+    { "name": "Erro: 3 falhas seguidas não transitórias (5xx)", "restHealth": { "last": "server", "nonTransientFailures": 3 }, "expect": "error" },
+    { "name": "Erro: 3 falhas seguidas não transitórias (JSON inválido)", "restHealth": { "last": "parse", "nonTransientFailures": 3 }, "expect": "error" },
+    { "name": "Erro: 3 falhas seguidas de `changes`", "catchUp": { "state": "failed", "failures": 3, "cursor": 1, "head": 5 }, "expect": "error" },
+    { "name": "2 falhas ainda não são Erro (Sincronizando)", "catchUp": { "state": "failed", "failures": 2, "cursor": 1, "head": 5 }, "expect": "syncing" },
+    { "name": "Erro vence Offline", "book": { "revoked": "deleted" }, "accountFeed": { "state": "backoff" }, "expect": "error" },
+
+    { "name": "Offline: Feed da conta desconectado (backoff)", "accountFeed": { "state": "backoff" }, "expect": "offline" },
+    { "name": "Offline: Feed da conta desconectado (connecting, antes do hello)", "accountFeed": { "state": "connecting" }, "expect": "offline" },
+    { "name": "Offline: feed indisponível no servidor (disabled)", "accountFeed": { "state": "disabled" }, "expect": "offline" },
+    { "name": "Offline: rede indisponível (erro de rede no REST, feed ainda aberto)", "restHealth": { "last": "network", "nonTransientFailures": 0 }, "expect": "offline" },
+    { "name": "Offline vence Sincronizando", "accountFeed": { "state": "backoff" }, "catchUp": { "state": "running", "failures": 0, "cursor": 1, "head": 5 }, "expect": "offline" },
+
+    { "name": "Sincronizando: `changes` em andamento", "catchUp": { "state": "running", "failures": 0, "cursor": 5, "head": 5 }, "expect": "syncing" },
+    { "name": "Sincronizando: `head > cursor`", "catchUp": { "state": "idle", "failures": 0, "cursor": 4, "head": 5 }, "expect": "syncing" },
+    { "name": "Sincronizando: editor ativo em CONNECTING", "editor": { "state": "CONNECTING", "pending": false }, "expect": "syncing" },
+    { "name": "Sincronizando: editor ativo em SYNCING", "editor": { "state": "SYNCING", "pending": false }, "expect": "syncing" },
+    { "name": "Sincronizando: edições locais ainda não confirmadas", "editor": { "state": "LIVE", "pending": true }, "expect": "syncing" },
+    { "name": "Sincronizando: editor OFFLINE (reconectando) com feed aberto", "editor": { "state": "OFFLINE", "pending": false }, "expect": "syncing" },
+    { "name": "Sincronizando vence Somente leitura", "book": { "can_edit": false }, "catchUp": { "state": "idle", "failures": 0, "cursor": 4, "head": 5 }, "expect": "syncing" },
+
+    { "name": "Somente leitura: Atualizado e `can_edit = false`", "book": { "can_edit": false }, "expect": "read_only" },
+
+    { "name": "Atualizado: Feed conectado, `cursor = head`, editor fechado, nada pendente", "expect": "up_to_date" },
+    { "name": "Atualizado: Feed conectado, `cursor = head`, editor LIVE, nada pendente", "editor": { "state": "LIVE", "pending": false }, "expect": "up_to_date" },
+    { "name": "Atualizado: editor CLOSED (terminal) conta como fechado", "editor": { "state": "CLOSED", "pending": false }, "expect": "up_to_date" },
+    { "name": "Atualizado: falhas transitórias abaixo do limiar não contam", "restHealth": { "last": "server", "nonTransientFailures": 2 }, "expect": "up_to_date" }
+  ]
+}

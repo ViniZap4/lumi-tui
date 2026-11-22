@@ -64,7 +64,7 @@ func TestBookStatusTable(t *testing.T) {
 		{"2 falhas não bastam para Erro", with(func(i *StatusInput) {
 			i.CatchUp = CatchUp{Phase: CatchUpFailed, Failures: 2, Cursor: 42, Head: 42}
 		}), StateUpToDate},
-		{"feed disabled (servidor sem /api/events) degrada para REST", with(func(i *StatusInput) { i.Feed = FeedDisabled }), StateUpToDate},
+		{"feed disabled (servidor sem /api/events) conta como desconectado", with(func(i *StatusInput) { i.Feed = FeedDisabled }), StateOffline},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -73,6 +73,13 @@ func TestBookStatusTable(t *testing.T) {
 			}
 		})
 	}
+}
+
+// appleCaseConflicts lists Apple cases that contradict the web table
+// (testdata/bookstatus.web.cases.json), which this client follows per
+// coordination on 22/11/2026. To be reconciled in the monorepo C0 fixture.
+var appleCaseConflicts = map[string]string{
+	"feed disabled (server without /api/events) degrades to REST, not offline": "conflicts with web case \"Offline: feed indisponível no servidor (disabled)\"",
 }
 
 // TestBookStatusSharedCases runs the cross-client case table written with
@@ -125,6 +132,9 @@ func TestBookStatusSharedCases(t *testing.T) {
 		"syncing": StateSyncing, "read_only": StateReadOnly, "up_to_date": StateUpToDate}
 	for _, c := range doc.Cases {
 		t.Run(c.Name, func(t *testing.T) {
+			if reason, ok := appleCaseConflicts[c.Name]; ok {
+				t.Skip(reason)
+			}
 			b := Book{ID: "b", Kind: Kind(c.Book.Kind), ServerURL: "https://s", Account: "u"}
 			if c.Book.HasVaultID {
 				b.VaultID = "8c5a1d9f-2e3b-4c4d-9e5f-6a7b8c9d0e1f"
@@ -167,6 +177,131 @@ func TestBookStatusSharedCases(t *testing.T) {
 			}
 			if got := BookStatus(in).State; got != want {
 				t.Errorf("BookStatus = %s, want %s (spec: %s)", got.Label(), want.Label(), c.Spec)
+			}
+		})
+	}
+}
+
+// TestBookStatusWebCases runs the web client's case table
+// (testdata/bookstatus.web.cases.json, copied verbatim from
+// web-client/src/test/fixtures/bookstatus.cases.json). Case fields
+// override the file's "defaults" one level deep.
+func TestBookStatusWebCases(t *testing.T) {
+	data, err := os.ReadFile("testdata/bookstatus.web.cases.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Defaults map[string]json.RawMessage   `json:"defaults"`
+		Cases    []map[string]json.RawMessage `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	type bookT struct {
+		Kind    string  `json:"kind"`
+		VaultID *string `json:"vault_id"`
+		CanEdit bool    `json:"can_edit"`
+		Revoked *string `json:"revoked"`
+	}
+	type feedT struct {
+		State string `json:"state"`
+	}
+	type catchT struct {
+		State    string `json:"state"`
+		Failures int    `json:"failures"`
+		Cursor   int64  `json:"cursor"`
+		Head     int64  `json:"head"`
+	}
+	type editorT struct {
+		State   string `json:"state"`
+		Pending bool   `json:"pending"`
+	}
+	type restT struct {
+		Last                 string `json:"last"`
+		NonTransientFailures int    `json:"nonTransientFailures"`
+	}
+	// merge decodes the default then overlays the case's object.
+	merge := func(c map[string]json.RawMessage, key string, out any) bool {
+		if d, ok := doc.Defaults[key]; ok {
+			if err := json.Unmarshal(d, out); err != nil {
+				t.Fatal(err)
+			}
+		}
+		raw, ok := c[key]
+		if !ok {
+			return true
+		}
+		if string(raw) == "null" {
+			return false
+		}
+		if err := json.Unmarshal(raw, out); err != nil {
+			t.Fatal(err)
+		}
+		return true
+	}
+	feeds := map[string]FeedState{"connecting": FeedConnecting, "open": FeedOpen, "backoff": FeedBackoff, "auth_dead": FeedAuthDead, "disabled": FeedDisabled}
+	phases := map[string]CatchUpPhase{"idle": CatchUpIdle, "running": CatchUpRunning, "failed": CatchUpFailed}
+	editors := map[string]EditorState{"closed": EditorClosed, "connecting": EditorConnecting, "syncing": EditorSyncing, "live": EditorLive, "offline": EditorOffline}
+	expected := map[string]State{"not_bound": StateLocal, "needs_login": StateSignIn, "error": StateError, "offline": StateOffline,
+		"syncing": StateSyncing, "read_only": StateReadOnly, "up_to_date": StateUpToDate}
+	if len(doc.Cases) == 0 {
+		t.Fatal("no cases")
+	}
+	for _, c := range doc.Cases {
+		var name, expect string
+		json.Unmarshal(c["name"], &name)
+		json.Unmarshal(c["expect"], &expect)
+		t.Run(name, func(t *testing.T) {
+			var bk bookT
+			merge(c, "book", &bk)
+			var fd feedT
+			hasFeed := merge(c, "accountFeed", &fd)
+			var cu catchT
+			merge(c, "catchUp", &cu)
+			var ed editorT
+			merge(c, "editor", &ed)
+			var rh restT
+			merge(c, "restHealth", &rh)
+
+			b := Book{ID: "b", Kind: Kind(bk.Kind), ServerURL: "https://s", Account: "u"}
+			if bk.VaultID != nil {
+				b.VaultID = *bk.VaultID
+			}
+			// accountFeed: null = no account/token on this client.
+			in := StatusInput{Book: b, HasAccount: hasFeed, TokenPresent: hasFeed, CanEdit: bk.CanEdit}
+			if bk.Revoked != nil {
+				in.Revoked, in.RevokeReason = true, *bk.Revoked
+			}
+			if hasFeed {
+				f, ok := feeds[fd.State]
+				if !ok {
+					t.Fatalf("unknown feed %q", fd.State)
+				}
+				in.Feed = f
+			}
+			in.CatchUp = CatchUp{Phase: phases[cu.State], Failures: cu.Failures, Cursor: cu.Cursor, Head: cu.Head}
+			es, ok := editors[strings.ToLower(ed.State)]
+			if !ok {
+				t.Fatalf("unknown editor %q", ed.State)
+			}
+			in.Editor = Editor{State: es, Pending: ed.Pending}
+			switch rh.Last {
+			case "ok", "server", "parse":
+			case "network":
+				in.Rest.NetworkError = true
+			case "auth":
+				in.Rest.Unauthorized = true
+			default:
+				t.Fatalf("unknown rest %q", rh.Last)
+			}
+			in.Rest.Failures = rh.NonTransientFailures
+			want, ok := expected[expect]
+			if !ok {
+				t.Fatalf("unknown expect %q", expect)
+			}
+			if got := BookStatus(in).State; got != want {
+				t.Errorf("BookStatus = %s, want %s", got.Label(), want.Label())
 			}
 		})
 	}

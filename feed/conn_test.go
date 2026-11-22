@@ -187,7 +187,10 @@ func TestConnRetryAfterAndReconnectEvent(t *testing.T) {
 	}))
 	defer srv2.Close()
 	got = collect(t, ConnConfig{ServerURL: srv2.URL, Token: "x", Jitter: func(time.Duration) time.Duration { return 0 }},
-		func(u []Update) bool { return u[len(u)-1].State == books.FeedBackoff })
+		func(u []Update) bool { return u[len(u)-1].RetryIn > 0 })
+	if got[len(got)-1].State != books.FeedConnecting {
+		t.Fatalf("reconnect should report connecting: %+v", got[len(got)-1])
+	}
 	if got[len(got)-1].RetryIn != 1500*time.Millisecond {
 		t.Fatalf("reconnect after_ms: %+v", got[len(got)-1])
 	}
