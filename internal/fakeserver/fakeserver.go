@@ -4,9 +4,10 @@
 //
 //   - GET  /api/vaults/:v/notes/:id/snapshot → {id, path, text, vector_clock, state}
 //   - POST /api/vaults/:v/notes/:id/diff {text, base_state, origin}
-//     → 3-way merge base→text into the current text, {id, path, text, vector_clock}
-//     (no `state`, like the real server);
-//     no base_state → 409 base_required; unknown base_state → 409 base_mismatch
+//     → 3-way merge base→text into the current text, {id, path, text, vector_clock, state}
+//     (DiffOmitState drops `state`, like older servers);
+//     no base_state → 409 base_required; unknown base_state → 409 base_mismatch;
+//     expired base_state (ExpireHistory) → 409 base_too_old
 //   - GET  /api/vaults/:v/changes?after=N, GET /api/vaults/:v/notes,
 //     GET /api/vaults, GET /api/vaults/:v/notes/:id/content
 //
@@ -53,14 +54,20 @@ type Server struct {
 	notes  map[string]*Note
 	order  []string
 	states map[string]string // state token -> text
-	head   int64
-	diffs  []DiffRequest
+	// expired holds tokens the server can no longer reconstruct.
+	expired   map[string]bool
+	snapshots int
+	head      int64
+	diffs     []DiffRequest
 	// OnDiff runs (unlocked) before a /diff is processed.
 	OnDiff func(DiffRequest)
 	// Fail409 forces the next /diff calls to answer 409 with these codes.
 	Fail409 []string
 	// OmitState makes GET /snapshot leave out `state` (pre-S9 server).
 	OmitState bool
+	// DiffOmitState makes POST /diff leave out `state` (servers before
+	// the /diff reply carried the merged doc).
+	DiffOmitState bool
 	// Events, when set, serves GET /api/events (the SSE feed).
 	Events http.HandlerFunc
 }
@@ -74,7 +81,7 @@ func (s *Server) Head() int64 {
 
 // New starts a fake server for one vault.
 func New(vaultID, slug string) *Server {
-	s := &Server{VaultID: vaultID, Slug: slug, notes: map[string]*Note{}, states: map[string]string{}}
+	s := &Server{VaultID: vaultID, Slug: slug, notes: map[string]*Note{}, states: map[string]string{}, expired: map[string]bool{}}
 	s.Server = httptest.NewServer(http.HandlerFunc(s.serve))
 	return s
 }
@@ -126,6 +133,29 @@ func (s *Server) ForgetHistory() {
 		n.version += 1000
 		s.stateLocked(n)
 	}
+}
+
+// ExpireHistory makes every state token issued so far unreconstructable
+// (history compacted): pushes on old bases get base_too_old. Current
+// texts get fresh tokens.
+func (s *Server) ExpireHistory() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for t := range s.states {
+		s.expired[t] = true
+	}
+	s.states = map[string]string{}
+	for _, n := range s.notes {
+		n.version += 1000
+		s.stateLocked(n)
+	}
+}
+
+// Snapshots returns how many GET /snapshot requests were served.
+func (s *Server) Snapshots() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.snapshots
 }
 
 // Text returns a note's current server text.
@@ -219,6 +249,7 @@ func (s *Server) note(w http.ResponseWriter, r *http.Request, id, op string) {
 	switch {
 	case op == "snapshot" && r.Method == http.MethodGet:
 		s.mu.Lock()
+		s.snapshots++
 		body := map[string]any{"id": n.ID, "path": n.Path, "text": n.Text, "vector_clock": clock(n)}
 		if !s.OmitState {
 			body["state"] = s.stateLocked(n)
@@ -275,6 +306,10 @@ func (s *Server) diff(w http.ResponseWriter, r *http.Request, n *Note) {
 		return
 	}
 	baseText, ok := s.states[req.BaseState]
+	if !ok && s.expired[req.BaseState] {
+		writeJSON(w, 409, map[string]string{"error": "base_too_old"})
+		return
+	}
 	if !ok {
 		writeJSON(w, 409, map[string]string{"error": "base_mismatch"})
 		return
@@ -291,7 +326,11 @@ func (s *Server) diff(w http.ResponseWriter, r *http.Request, n *Note) {
 		n.Seq = s.head
 		s.stateLocked(n)
 	}
-	writeJSON(w, 200, map[string]any{"id": n.ID, "path": n.Path, "text": n.Text, "vector_clock": clock(n)})
+	out := map[string]any{"id": n.ID, "path": n.Path, "text": n.Text, "vector_clock": clock(n)}
+	if !s.DiffOmitState {
+		out["state"] = s.stateLocked(n)
+	}
+	writeJSON(w, 200, out)
 }
 
 type hunk struct {

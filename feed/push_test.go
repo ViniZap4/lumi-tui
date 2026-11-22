@@ -181,9 +181,113 @@ func TestPushBaseMismatchRetriesOnFreshSnapshot(t *testing.T) {
 	e.assertBase("a", "hello brave world")
 }
 
-// base_required / base_mismatch with both sides changed: keep both.
+// The /diff reply's `state` is the next base: no extra GET /snapshot,
+// and a follow-up push merges on it.
+func TestPushUsesDiffStateAsNextBase(t *testing.T) {
+	e := newPushEnv(t)
+	e.srv.AddNote("a", "a.md", "hello world")
+	e.pull("a", "a.md")
+	snaps := e.srv.Snapshots()
+	e.srv.RemoteEdit("a", "# hello world")
+	e.editLocal("a.md", "hello brave world")
+
+	if res := e.push("a.md"); res.Outcome != PushMerged {
+		t.Fatalf("outcome = %v", res.Outcome)
+	}
+	if got := e.srv.Snapshots(); got != snaps {
+		t.Fatalf("snapshots = %d, want %d (state from /diff not used)", got, snaps)
+	}
+	e.assertBase("a", "# hello brave world")
+
+	e.srv.RemoteEdit("a", "# hello brave world!")
+	e.editLocal("a.md", "# hi brave world")
+	if res := e.push("a.md"); res.Outcome != PushMerged || res.ConflictPath != "" {
+		t.Fatalf("second push = %+v", res)
+	}
+	if got := e.srv.Text("a"); got != "# hi brave world!" {
+		t.Fatalf("server text = %q", got)
+	}
+	if d := e.srv.Diffs(); len(d) != 2 {
+		t.Fatalf("diffs = %d (second push needed a retry?)", len(d))
+	}
+	if got := e.srv.Snapshots(); got != snaps {
+		t.Fatalf("snapshots = %d, want %d", got, snaps)
+	}
+	e.assertBase("a", "# hi brave world!")
+}
+
+// Older servers: /diff has no `state`, the next base comes from GET
+// /snapshot.
+func TestPushWithoutDiffStateFetchesSnapshot(t *testing.T) {
+	e := newPushEnv(t)
+	e.srv.DiffOmitState = true
+	e.srv.AddNote("a", "a.md", "hello world")
+	e.pull("a", "a.md")
+	snaps := e.srv.Snapshots()
+	e.srv.RemoteEdit("a", "# hello world")
+	e.editLocal("a.md", "hello brave world")
+
+	if res := e.push("a.md"); res.Outcome != PushMerged {
+		t.Fatalf("outcome = %v", res.Outcome)
+	}
+	if got := e.srv.Snapshots(); got != snaps+1 {
+		t.Fatalf("snapshots = %d, want %d", got, snaps+1)
+	}
+	if e.read("a.md").Content != "# hello brave world" {
+		t.Fatalf("local = %q", e.read("a.md").Content)
+	}
+	e.assertBase("a", "# hello brave world")
+}
+
+// base_too_old with an unchanged remote text: re-pull and retry once on
+// the fresh snapshot, like base_mismatch.
+func TestPushBaseTooOldRetriesOnFreshSnapshot(t *testing.T) {
+	e := newPushEnv(t)
+	e.srv.AddNote("a", "a.md", "hello world")
+	e.pull("a", "a.md")
+	e.srv.ExpireHistory()
+	e.editLocal("a.md", "hello brave world")
+
+	res := e.push("a.md")
+	if res.Outcome != PushMerged || res.ConflictPath != "" {
+		t.Fatalf("res = %+v", res)
+	}
+	d := e.srv.Diffs()
+	if e.srv.Text("a") != "hello brave world" || len(d) != 2 || d[0].BaseState == d[1].BaseState {
+		t.Fatalf("server %q, diffs %+v", e.srv.Text("a"), d)
+	}
+	e.assertBase("a", "hello brave world")
+}
+
+// base_too_old with both sides changed: keep both, nothing lost.
+func TestPushBaseTooOldBothChangedKeepsBoth(t *testing.T) {
+	e := newPushEnv(t)
+	e.srv.AddNote("a", "a.md", "hello world")
+	e.pull("a", "a.md")
+	e.srv.ExpireHistory()
+	e.srv.RemoteEdit("a", "# hello world")
+	e.editLocal("a.md", "hello brave world")
+
+	res := e.push("a.md")
+	if res.Outcome != PushConflict || res.ConflictPath == "" {
+		t.Fatalf("res = %+v", res)
+	}
+	if got := e.read("a.md").Content; got != "# hello world" {
+		t.Fatalf("note = %q", got)
+	}
+	if got := e.read(res.ConflictPath).Content; got != "hello brave world" {
+		t.Fatalf("conflict copy = %q", got)
+	}
+	if e.srv.Text("a") != "# hello world" || len(e.srv.Diffs()) != 1 {
+		t.Fatalf("server %q, diffs %d", e.srv.Text("a"), len(e.srv.Diffs()))
+	}
+	e.assertBase("a", "# hello world")
+}
+
+// base_required / base_mismatch / base_too_old with both sides changed:
+// keep both.
 func TestPushBaseConflictBothChangedKeepsBoth(t *testing.T) {
-	for _, code := range []string{"base_required", "base_mismatch"} {
+	for _, code := range []string{"base_required", "base_mismatch", "base_too_old"} {
 		t.Run(code, func(t *testing.T) {
 			e := newPushEnv(t)
 			e.srv.AddNote("a", "dir/a.md", "hello world")

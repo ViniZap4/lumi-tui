@@ -162,8 +162,9 @@ func baseFromSnap(id string, snap *account.NoteSnapshot) *Base {
 //     Otherwise both sides changed with no common base → conflict.
 //  3. POST /diff {text, base_state}: the server merges base→edited into
 //     its current doc, so concurrent remote edits survive. The merged
-//     text is written back (frontmatter preserved) and becomes the base.
-//  4. 409 base_required / base_mismatch → re-pull. If the remote text is
+//     text is written back (frontmatter preserved) and the reply's
+//     `state` becomes the base (older servers: a fresh GET /snapshot).
+//  4. 409 base_required / base_mismatch / base_too_old → re-pull. If the remote text is
 //     unchanged since the base, retry once on the fresh snapshot (same
 //     text, so the same diff). If both changed → conflict.
 //
@@ -268,7 +269,12 @@ func (s *Syncer) pushOn(ctx context.Context, local *domain.Note, base *Base, res
 	if err != nil {
 		return res, err
 	}
-	// The /diff reply has no `state`; the next base comes from a fresh
+	res.Outcome = PushMerged
+	if merged.State != "" {
+		// The /diff reply carries the merged doc: it is the next base.
+		return s.writeBack(local, merged, res)
+	}
+	// Older servers omit `state`; the next base comes from a fresh
 	// snapshot (it may already include later remote edits, which is
 	// fine: the file gets them too). Without it, keep the merged text and
 	// drop the base — the next push re-derives it via the cache hash.
@@ -276,7 +282,6 @@ func (s *Syncer) pushOn(ctx context.Context, local *domain.Note, base *Base, res
 	if ferr != nil {
 		snap = &account.NoteSnapshot{ID: merged.ID, Text: merged.Text, VectorClock: merged.VectorClock}
 	}
-	res.Outcome = PushMerged
 	return s.writeBack(local, snap, res)
 }
 
