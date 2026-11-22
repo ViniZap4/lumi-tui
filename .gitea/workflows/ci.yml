@@ -1,0 +1,59 @@
+# CI do lumi-tui no Gitea (org lumi): gofmt, go vet, go test e build.
+# Checkout pela variável LAN_GIT_URL (o Gitea se anuncia aos jobs como http://gitea:3000).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: golang:1.25.14-bookworm
+    timeout-minutes: 15
+    env:
+      GITEA_URL: ${{ vars.LAN_GIT_URL }}
+    steps:
+      - name: checkout
+        env:
+          TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -eu
+          [ -n "$GITEA_URL" ] || { echo "::error::defina a variável de organização LAN_GIT_URL"; exit 1; }
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          git config --global "http.$GITEA_URL/.extraheader" "AUTHORIZATION: basic $auth"
+          git config --global --add safe.directory "$PWD"
+          git init -q .
+          git remote add origin "$GITEA_URL/${{ github.repository }}.git"
+          git fetch -q --depth 1 origin "$SHA"
+          git checkout -q FETCH_HEAD
+          git config --global --unset-all "http.$GITEA_URL/.extraheader"
+          git log --oneline -1
+
+      - name: gofmt
+        run: |
+          set -eu
+          unformatted=$(git ls-files '*.go' | xargs gofmt -l)
+          if [ -n "$unformatted" ]; then
+            echo "::error::arquivos sem gofmt:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test -count=1 ./...
+
+      - name: build
+        run: go build -o /tmp/lumi .
