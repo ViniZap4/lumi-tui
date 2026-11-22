@@ -7,11 +7,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/vinizap/lumi/tui-client/account"
 	"github.com/vinizap/lumi/tui-client/domain"
+	"github.com/vinizap/lumi/tui-client/feed"
 	"github.com/vinizap/lumi/tui-client/filesystem"
 )
 
@@ -30,12 +32,18 @@ Usage:
   lumi vault sync --server <url> --slug <slug> [<path>] [--dry-run]
 
 Behaviour:
-  * Push: every local *.md file whose frontmatter has an 'id:' is sent
-    via POST /api/vaults/:vault/notes/:id/diff. The server CRDT merges
-    the diff against any concurrent edits, returns the post-merge body,
-    and we mirror it back to disk (frontmatter preserved).
-  * Pull: every remote note whose path isn't on disk is fetched via
-    GET .../snapshot and written locally with synthesized frontmatter.
+  * Push: every local *.md file (with an 'id:') modified since its base —
+    the server version it was last synced with, kept in the user cache
+    dir — is sent with that base to POST /api/vaults/:vault/notes/:id/diff.
+    The server merges base -> local edit into its current text (3-way),
+    so remote edits made meanwhile survive; the merged body is written
+    back (frontmatter preserved) and becomes the new base.
+  * Conflict: when there is no usable base and both sides changed, the
+    server version goes into the note and yours is saved next to it as
+    <note>.conflict-<timestamp>.md. Nothing is overwritten.
+  * Pull: unmodified local notes get the server's newer text; remote
+    notes not on disk are fetched via GET .../snapshot and written with
+    synthesized frontmatter.
   * Files without an 'id:' frontmatter are skipped — sync identifies
     by id, not path. Use 'lumi vault clone' to seed a vault for the
     first time.
@@ -218,45 +226,61 @@ func runVaultSyncCmd(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	syncer, saveCache := newBookSyncer(client, opts.Server, vault.ID, absTarget)
+	defer saveCache(stderr)
+
 	stats := syncStats{}
 
 	// Push local files that the server knows about (have matching id).
 	// Files whose id is unknown to the server are skipped — sync does
 	// not create. The user can use 'lumi note create' later.
-	for id, local := range localByID {
+	ids := make([]string, 0, len(localByID))
+	for id := range localByID {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		local := localByID[id]
+		rel := relTo(absTarget, local.Path)
 		if _, ok := remoteByID[id]; !ok {
 			stats.PushSkippedUnknownID++
-			fmt.Fprintf(stdout, "  skip-push (id not on server)  %s\n", relTo(absTarget, local.Path))
+			fmt.Fprintf(stdout, "  skip-push (id not on server)  %s\n", rel)
 			continue
 		}
 		if opts.DryRun {
-			stats.PushPlanned++
-			fmt.Fprintf(stdout, "  push (planned)                %s\n", relTo(absTarget, local.Path))
+			if !syncer.IsClean(id, local) {
+				stats.PushPlanned++
+				fmt.Fprintf(stdout, "  push (planned)                %s\n", rel)
+			}
 			continue
 		}
-		// No base is known for a file edited outside lumi; see the
-		// TODO on account.PushEdit (3-way merge, CRDT protocol §7.1).
-		merged, err := client.PushEdit(ctx, vault.ID, id, account.EditBase{}, local.Content)
+		// 3-way merge against the stored base (CRDT protocol §7.1/§7.2):
+		// concurrent remote edits survive; with no usable base and both
+		// sides changed, both versions are kept.
+		res, err := syncer.SyncNote(ctx, local.Path)
 		if err != nil {
-			fmt.Fprintf(stderr, "Error: push %s: %v\n", relTo(absTarget, local.Path), err)
+			fmt.Fprintf(stderr, "Error: push %s: %v\n", rel, err)
 			stats.PushFailed++
 			continue
 		}
-		// Mirror the merged body back to disk, preserving the existing
-		// frontmatter. The server may have woven in concurrent edits.
-		local.Content = merged.Text
-		if err := filesystem.WriteNote(local); err != nil {
-			fmt.Fprintf(stderr, "Error: write merged body %s: %v\n", local.Path, err)
-			stats.PushFailed++
-			continue
+		switch res.Outcome {
+		case feed.PushMerged:
+			stats.Pushed++
+			fmt.Fprintf(stdout, "  pushed                        %s\n", rel)
+		case feed.PushPulled:
+			stats.Pulled++
+			fmt.Fprintf(stdout, "  pulled                        %s\n", rel)
+		case feed.PushConflict:
+			stats.Conflicts++
+			fmt.Fprintf(stdout, "  conflict                      %s\n", rel)
+			fmt.Fprintf(stderr,
+				"Conflict: %s changed here and on the server. The server version is now in %s; your version was saved as %s.\n",
+				rel, rel, res.ConflictPath)
 		}
-		stats.Pushed++
-		fmt.Fprintf(stdout, "  pushed                        %s\n", relTo(absTarget, local.Path))
 	}
 
-	// Pull remote notes that aren't on disk locally. Existing files are
-	// not overwritten on pull — the push pass already merged their
-	// content via the CRDT.
+	// Pull remote notes that aren't on disk locally. Existing files were
+	// handled (merged or pulled) by the pass above.
 	for _, n := range notes {
 		if _, ok := localByID[n.ID]; ok {
 			continue
@@ -270,6 +294,12 @@ func runVaultSyncCmd(args []string, stdout, stderr io.Writer) int {
 		if opts.DryRun {
 			stats.PullPlanned++
 			fmt.Fprintf(stdout, "  pull (planned)                %s\n", relTo(absTarget, dest))
+			continue
+		}
+		if _, err := os.Stat(dest); err == nil {
+			// An unrelated local file sits at the path: never clobber.
+			fmt.Fprintf(stderr, "Error: pull %s: a different local file already exists there\n", n.Path)
+			stats.PullFailed++
 			continue
 		}
 		snap, err := client.GetNoteSnapshot(ctx, vault.ID, n.ID)
@@ -289,6 +319,9 @@ func runVaultSyncCmd(args []string, stdout, stderr io.Writer) int {
 			stats.PullFailed++
 			continue
 		}
+		if err := syncer.Record(n.ID, dest, snap); err != nil {
+			fmt.Fprintf(stderr, "Warning: base for %s not saved: %v\n", n.Path, err)
+		}
 		stats.Pulled++
 		fmt.Fprintf(stdout, "  pulled                        %s\n", relTo(absTarget, dest))
 	}
@@ -305,6 +338,34 @@ func runVaultSyncCmd(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	return 0
+}
+
+// newBookSyncer opens the per-book sync state (cache + bases under
+// <UserCacheDir>/lumi/books) for a vault folder, keyed like the feed
+// manager keys it: the book registered for vaultID in books.yaml, or the
+// vault id (the default book id of a clone) when none is. The returned
+// func saves the cache.
+func newBookSyncer(api feed.NoteAPI, server, vaultID, root string) (*feed.Syncer, func(io.Writer)) {
+	bookID, bookServer := strings.ToLower(vaultID), strings.TrimRight(server, "/")
+	if n, err := account.NormalizeServerURL(bookServer); err == nil {
+		bookServer = n
+	}
+	if st, err := openBooks(); err == nil {
+		if b := st.Registry.ByVaultID(vaultID); b != nil {
+			bookID, bookServer = b.ID, b.ServerURL
+		}
+	}
+	dir, err := feed.CacheDir()
+	if err != nil {
+		dir = ""
+	}
+	cache := feed.LoadCache(dir, bookID, strings.ToLower(vaultID), bookServer)
+	s := &feed.Syncer{API: api, VaultID: vaultID, Root: root, Cache: cache, Bases: feed.BasesFor(dir, bookID)}
+	return s, func(stderr io.Writer) {
+		if err := cache.Save(dir, bookID); err != nil {
+			fmt.Fprintf(stderr, "Warning: sync cache not saved: %v\n", err)
+		}
+	}
 }
 
 // resolveSyncPath picks the on-disk location for sync. Precedence:
@@ -424,6 +485,7 @@ type syncStats struct {
 	PushPlanned          int
 	PushSkippedUnknownID int
 	PushFailed           int
+	Conflicts            int
 	Pulled               int
 	PullPlanned          int
 	PullFailed           int
@@ -435,6 +497,10 @@ func (s syncStats) Summary(dry bool) string {
 		return fmt.Sprintf("Dry-run: %d push, %d pull, %d skip (unknown id), %d skip (no id).\n",
 			s.PushPlanned, s.PullPlanned, s.PushSkippedUnknownID, s.SkippedNoID)
 	}
-	return fmt.Sprintf("Pushed %d; pulled %d; skipped %d (no id), %d (unknown id); %d push errors, %d pull errors.\n",
+	out := fmt.Sprintf("Pushed %d; pulled %d; skipped %d (no id), %d (unknown id); %d push errors, %d pull errors.\n",
 		s.Pushed, s.Pulled, s.SkippedNoID, s.PushSkippedUnknownID, s.PushFailed, s.PullFailed)
+	if s.Conflicts > 0 {
+		out += fmt.Sprintf("%d conflict(s): both versions kept (see *.conflict-*.md).\n", s.Conflicts)
+	}
+	return out
 }

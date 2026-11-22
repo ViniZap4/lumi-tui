@@ -2,8 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +11,9 @@ import (
 	"time"
 
 	"github.com/vinizap/lumi/tui-client/account"
+	"github.com/vinizap/lumi/tui-client/domain"
+	"github.com/vinizap/lumi/tui-client/filesystem"
+	"github.com/vinizap/lumi/tui-client/internal/fakeserver"
 )
 
 func TestParseSyncArgs(t *testing.T) {
@@ -106,126 +107,156 @@ func TestAssertSafeRelPath(t *testing.T) {
 	}
 }
 
-// TestRunVaultSyncCmdEndToEnd exercises the full sync against an
-// httptest server. Setup:
-//   - The local vault directory contains:
-//   - existing.md with id=n1 (server has matching id) -> push
-//   - orphan.md with no frontmatter id -> skipped
-//   - The server has:
-//   - n1 (matches existing.md, server returns a "merged" body)
-//   - n2 (not on disk) -> pulled
-//
-// After running we expect:
-//   - existing.md's body replaced with the server's merged text
-//   - new.md created on disk with the server snapshot
-//   - orphan.md untouched
-func TestRunVaultSyncCmdEndToEnd(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-
-	var (
-		gotDiffBody    string
-		snapshotCalled bool
-	)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Lumi-Token") != "tok" {
-			http.Error(w, "no token", http.StatusUnauthorized)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case r.URL.Path == "/api/vaults":
-			_, _ = w.Write([]byte(`{"vaults":[{"id":"v1","slug":"work","name":"Work","created_by":"u1","created_at":"2026-05-25T10:00:00Z"}]}`))
-		case r.URL.Path == "/api/vaults/v1/notes":
-			_, _ = w.Write([]byte(`{"notes":[
-				{"id":"n1","vault_id":"v1","path":"existing.md","title":"Existing","created_at":"2026-05-01T10:00:00Z","updated_at":"2026-05-25T10:00:00Z"},
-				{"id":"n2","vault_id":"v1","path":"new.md","title":"New","created_at":"2026-05-20T10:00:00Z","updated_at":"2026-05-22T10:00:00Z"}
-			],"limit":200,"offset":0}`))
-		case r.URL.Path == "/api/vaults/v1/notes/n1/diff" && r.Method == http.MethodPost:
-			raw, _ := io.ReadAll(r.Body)
-			gotDiffBody = string(raw)
-			_, _ = w.Write([]byte(`{"id":"n1","path":"existing.md","text":"server-merged body\n","vector_clock":"YWJjZA=="}`))
-		case r.URL.Path == "/api/vaults/v1/notes/n2/snapshot":
-			snapshotCalled = true
-			_, _ = w.Write([]byte(`{"id":"n2","path":"new.md","text":"# New from server\n","vector_clock":"eHl6"}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
-
-	a := account.Account{
-		Server:    srv.URL,
-		Username:  "alice",
-		Token:     "tok",
-		AddedAt:   time.Now(),
-		ExpiresAt: time.Now().Add(time.Hour),
-	}
+func seedAccount(t *testing.T, server string) {
+	t.Helper()
 	file, _ := account.Load()
 	if file == nil {
 		file = &account.File{}
 	}
-	file.Upsert(a)
+	file.Upsert(account.Account{Server: server, Username: "alice", Token: "tok",
+		AddedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)})
 	if err := file.Save(); err != nil {
 		t.Fatalf("save accounts: %v", err)
 	}
+}
+
+func readBody(t *testing.T, path string) *domain.Note {
+	t.Helper()
+	n, err := filesystem.ReadNote(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return n
+}
+
+func writeBody(t *testing.T, path, body string) {
+	t.Helper()
+	n := readBody(t, path)
+	n.Content = body
+	if err := filesystem.WriteNote(n); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestRunVaultSyncCmdThreeWay drives clone → concurrent remote + local
+// edits → sync against a fake server with real snapshot/diff semantics.
+// The remote edit must survive (vector V9a was the old LWW bug), a clean
+// note picks up its remote change, a new remote note is pulled, a file
+// without id is left alone, and a second sync is a no-op.
+func TestRunVaultSyncCmdThreeWay(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	srv := fakeserver.New("v1", "work")
+	defer srv.Close()
+	seedAccount(t, srv.URL)
+	srv.AddNote("n1", "existing.md", "hello world")
+	srv.AddNote("n3", "clean.md", "clean v1")
 
 	vaultDir := filepath.Join(tmp, "work")
-	if err := os.MkdirAll(vaultDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
+	var stdout, stderr bytes.Buffer
+	if code := runVaultCloneCmd([]string{srv.URL + "/work", vaultDir}, &stdout, &stderr); code != 0 {
+		t.Fatalf("clone exit = %d, stderr = %s", code, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "no sync base") {
+		t.Fatalf("clone did not record bases: %s", stderr.String())
 	}
 
-	existing := "---\nid: n1\ntitle: Existing\ncreated_at: 2026-05-01T10:00:00Z\nupdated_at: 2026-05-25T10:00:00Z\n---\n\nlocal body before sync\n"
-	if err := os.WriteFile(filepath.Join(vaultDir, "existing.md"), []byte(existing), 0o644); err != nil {
-		t.Fatalf("seed existing.md: %v", err)
-	}
+	srv.RemoteEdit("n1", "# hello world") // web edits while we edit locally
+	srv.RemoteEdit("n3", "clean v2")
+	srv.AddNote("n2", "new.md", "# New from server")
+	writeBody(t, filepath.Join(vaultDir, "existing.md"), "hello brave world")
 	orphan := "# Just a markdown file with no frontmatter id\n"
 	if err := os.WriteFile(filepath.Join(vaultDir, "orphan.md"), []byte(orphan), 0o644); err != nil {
-		t.Fatalf("seed orphan.md: %v", err)
+		t.Fatal(err)
 	}
 
+	stdout.Reset()
+	stderr.Reset()
+	if code := runVaultSyncCmd([]string{srv.URL + "/work", vaultDir}, &stdout, &stderr); code != 0 {
+		t.Fatalf("sync exit = %d, stderr = %s", code, stderr.String())
+	}
+	if got := srv.Text("n1"); got != "# hello brave world" {
+		t.Fatalf("server text = %q (remote edit lost)", got)
+	}
+	ex := readBody(t, filepath.Join(vaultDir, "existing.md"))
+	if ex.Content != "# hello brave world" || ex.ID != "n1" {
+		t.Fatalf("existing.md = %+v", ex)
+	}
+	raw, _ := os.ReadFile(filepath.Join(vaultDir, "existing.md"))
+	if !strings.HasPrefix(string(raw), "---\n") {
+		t.Fatalf("frontmatter dropped:\n%s", raw)
+	}
+	if readBody(t, filepath.Join(vaultDir, "clean.md")).Content != "clean v2" {
+		t.Fatal("clean note did not pick up the remote change")
+	}
+	if readBody(t, filepath.Join(vaultDir, "new.md")).Content != "# New from server" {
+		t.Fatal("new remote note not pulled")
+	}
+	if o, _ := os.ReadFile(filepath.Join(vaultDir, "orphan.md")); string(o) != orphan {
+		t.Fatalf("orphan.md modified:\n%s", o)
+	}
+	d := srv.Diffs()
+	if len(d) != 1 || d[0].Origin != "tui" || d[0].BaseState == "" {
+		t.Fatalf("diffs = %+v", d)
+	}
+	if !strings.Contains(stdout.String(), "Pushed 1; pulled 2") {
+		t.Fatalf("summary: %s", stdout.String())
+	}
+	// No base or cache file landed in the notes folder.
+	if _, err := os.Stat(filepath.Join(vaultDir, ".lumi")); err == nil {
+		t.Fatal("sync state written into the notes folder")
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := runVaultSyncCmd([]string{srv.URL + "/work", vaultDir}, &stdout, &stderr); code != 0 {
+		t.Fatalf("second sync exit = %d, stderr = %s", code, stderr.String())
+	}
+	if len(srv.Diffs()) != 1 || !strings.Contains(stdout.String(), "Pushed 0; pulled 0") {
+		t.Fatalf("second sync was not a no-op: %s", stdout.String())
+	}
+}
+
+// TestRunVaultSyncCmdConflictKeepsBoth: a folder with no recorded base
+// (synced by an older lumi) where both sides changed. Nothing is pushed;
+// the server version lands in the note and the local one is kept.
+func TestRunVaultSyncCmdConflictKeepsBoth(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	srv := fakeserver.New("v1", "work")
+	defer srv.Close()
+	seedAccount(t, srv.URL)
+	srv.AddNote("n1", "existing.md", "server body")
+
+	vaultDir := filepath.Join(tmp, "work")
+	_ = os.MkdirAll(vaultDir, 0o755)
+	existing := "---\nid: n1\ntitle: Existing\n---\n\nlocal body before sync\n"
+	if err := os.WriteFile(filepath.Join(vaultDir, "existing.md"), []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	var stdout, stderr bytes.Buffer
-	code := runVaultSyncCmd([]string{srv.URL + "/work", vaultDir}, &stdout, &stderr)
-	if code != 0 {
+	if code := runVaultSyncCmd([]string{srv.URL + "/work", vaultDir}, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit = %d, stderr = %s", code, stderr.String())
 	}
-
-	// existing.md: frontmatter preserved, body replaced with server's merge.
-	got, err := os.ReadFile(filepath.Join(vaultDir, "existing.md"))
-	if err != nil {
-		t.Fatalf("read existing.md: %v", err)
+	if len(srv.Diffs()) != 0 || srv.Text("n1") != "server body" {
+		t.Fatalf("server overwritten: %q", srv.Text("n1"))
 	}
-	if !strings.Contains(string(got), "server-merged body") {
-		t.Errorf("existing.md body not replaced; got:\n%s", got)
+	if readBody(t, filepath.Join(vaultDir, "existing.md")).Content != "server body" {
+		t.Fatal("note does not hold the server version")
 	}
-	if !strings.HasPrefix(string(got), "---\n") {
-		t.Errorf("existing.md frontmatter dropped:\n%s", got)
+	matches, _ := filepath.Glob(filepath.Join(vaultDir, "existing.conflict-*.md"))
+	if len(matches) != 1 || readBody(t, matches[0]).Content != "local body before sync" || readBody(t, matches[0]).ID != "" {
+		t.Fatalf("conflict copy = %v", matches)
 	}
-
-	// new.md: pulled and written.
-	if _, err := os.Stat(filepath.Join(vaultDir, "new.md")); err != nil {
-		t.Errorf("new.md not pulled: %v", err)
+	if !strings.Contains(stderr.String(), "Conflict: existing.md") || !strings.Contains(stdout.String(), "1 conflict(s)") {
+		t.Fatalf("conflict not surfaced:\nstdout %s\nstderr %s", stdout.String(), stderr.String())
 	}
-
-	// orphan.md untouched.
-	o2, _ := os.ReadFile(filepath.Join(vaultDir, "orphan.md"))
-	if string(o2) != orphan {
-		t.Errorf("orphan.md modified:\n%s", o2)
-	}
-
-	// Verify the diff payload was sent with the local body + origin label.
-	var sent map[string]string
-	if err := json.Unmarshal([]byte(gotDiffBody), &sent); err != nil {
-		t.Fatalf("decode diff body: %v", err)
-	}
-	if !strings.Contains(sent["text"], "local body before sync") {
-		t.Errorf("diff text didn't carry local body: %q", sent["text"])
-	}
-	if sent["origin"] != "tui-diff" {
-		t.Errorf("origin = %q, want tui-diff", sent["origin"])
-	}
-	if !snapshotCalled {
-		t.Error("snapshot endpoint never hit — pull pass skipped n2")
+	// The local edit now sits in a local-only note; the next sync is clean.
+	stdout.Reset()
+	stderr.Reset()
+	runVaultSyncCmd([]string{srv.URL + "/work", vaultDir}, &stdout, &stderr)
+	if strings.Contains(stderr.String(), "Conflict") || len(srv.Diffs()) != 0 {
+		t.Fatalf("second sync: %s", stderr.String())
 	}
 }
 

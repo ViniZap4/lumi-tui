@@ -57,10 +57,13 @@ const (
 	// the remote changed too). The remote text is now in the note and the
 	// local version was kept in ConflictPath.
 	PushConflict
+	// PushPulled: the file was clean and the server text had changed;
+	// the server text was written (SyncNote only).
+	PushPulled
 )
 
 func (o PushOutcome) String() string {
-	return [...]string{"noop", "merged", "conflict"}[o]
+	return [...]string{"noop", "merged", "conflict", "pulled"}[o]
 }
 
 // PushResult reports one Push.
@@ -203,6 +206,35 @@ func (s *Syncer) Push(ctx context.Context, absPath string) (PushResult, error) {
 		base = baseFromSnap(id, snap)
 	}
 	return s.pushOn(ctx, local, base, res, false)
+}
+
+// SyncNote is Push for a note the caller wants fully up to date (lumi
+// vault sync): when there was nothing to push, a server text that moved
+// on is pulled into the (clean) file and becomes the base.
+func (s *Syncer) SyncNote(ctx context.Context, absPath string) (PushResult, error) {
+	res, err := s.Push(ctx, absPath)
+	if err != nil || res.Outcome != PushNoop {
+		return res, err
+	}
+	local, err := filesystem.ReadNote(absPath)
+	if local == nil {
+		return res, err
+	}
+	if !s.IsClean(local.ID, local) {
+		return res, nil // edited since Push looked; leave it pending
+	}
+	snap, err := s.fetch(ctx, local.ID)
+	if err != nil {
+		return res, err
+	}
+	if !sameBody(snap.Text, local.Content) {
+		local.Content = snap.Text
+		if err := filesystem.WriteNote(local); err != nil {
+			return res, err
+		}
+		res.Outcome = PushPulled
+	}
+	return res, s.Record(local.ID, absPath, snap)
 }
 
 // sendText re-attaches the base's surrounding whitespace to the edited

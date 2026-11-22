@@ -12,6 +12,7 @@ import (
 
 	"github.com/vinizap/lumi/tui-client/account"
 	"github.com/vinizap/lumi/tui-client/books"
+	"github.com/vinizap/lumi/tui-client/filesystem"
 )
 
 // cloneOpts captures parsed flags + positional args for `lumi vault clone`.
@@ -248,10 +249,15 @@ func runVaultCloneCmd(args []string, stdout, stderr io.Writer) int {
 		len(notes), opts.Server, opts.Slug, absTarget)
 
 	skipped, written := 0, 0
+	wroteIDs := map[string]string{} // note id -> dest written this run
 	for _, n := range notes {
+		before := written
 		if err := downloadNote(ctx, client, vault.ID, n, absTarget, opts.Force, &skipped, &written, stdout); err != nil {
 			fmt.Fprintf(stderr, "Error: %v\n", err)
 			return 1
+		}
+		if written > before {
+			wroteIDs[n.ID] = filepath.Join(absTarget, filepath.Clean(n.Path))
 		}
 	}
 	fmt.Fprintf(stdout, "Wrote %d file(s); skipped %d existing.\n", written, skipped)
@@ -283,7 +289,36 @@ func runVaultCloneCmd(args []string, stdout, stderr io.Writer) int {
 	updateBooks(stderr, func(reg *books.Registry) bool {
 		return registerClonedBook(reg, opts.Server, acc.Username, vault.ID, displayName, absTarget)
 	})
+	recordCloneBases(ctx, client, opts.Server, vault.ID, absTarget, wroteIDs, stderr)
 	return 0
+}
+
+// recordCloneBases stores the base (snapshot text + state) of every note
+// the clone wrote, so the first edit can be pushed 3-way
+// (CRDT-CLIENT-PROTOCOL §7.1 step 1). Best effort: a note whose snapshot
+// does not match what was written gets no base, and its first push
+// re-derives one (or keeps both versions).
+func recordCloneBases(ctx context.Context, client *account.Client, server, vaultID, root string, wrote map[string]string, stderr io.Writer) {
+	if len(wrote) == 0 {
+		return
+	}
+	syncer, save := newBookSyncer(client, server, vaultID, root)
+	defer save(stderr)
+	missed := 0
+	for id, dest := range wrote {
+		local, _ := filesystem.ReadNote(dest)
+		snap, err := client.GetNoteSnapshot(ctx, vaultID, id)
+		if local == nil || err != nil || strings.TrimSpace(snap.Text) != strings.TrimSpace(local.Content) {
+			missed++
+			continue
+		}
+		if err := syncer.Record(id, dest, snap); err != nil {
+			missed++
+		}
+	}
+	if missed > 0 {
+		fmt.Fprintf(stderr, "Warning: no sync base recorded for %d note(s); their first push will compare with the server copy.\n", missed)
+	}
 }
 
 // downloadNote reads one note's content via the API and writes it to
