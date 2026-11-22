@@ -205,6 +205,9 @@ func (m *Manager) View(bookID string) (BookView, bool) {
 		return BookView{}, false
 	}
 	bi := m.infoLocked(*b)
+	// Editor stays zero (closed, nothing pending): the TUI has no live
+	// CRDT session, and "pending" needs the .base push of
+	// CRDT-CLIENT-PROTOCOL §7.1 — see the TODO on account.PushEdit.
 	in := books.StatusInput{Book: *b, Revoked: bi.revoked, RevokeReason: bi.reason, CanEdit: bi.canEdit, CatchUp: bi.catchUp}
 	v := BookView{Book: *b, Role: bi.role, Cursor: bi.catchUp.Cursor, Head: bi.catchUp.Head,
 		LastSynced: bi.lastSynced, Errors: append([]string(nil), bi.errs...), Dirty: append([]string(nil), bi.dirty...),

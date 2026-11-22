@@ -234,7 +234,9 @@ func runVaultSyncCmd(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "  push (planned)                %s\n", relTo(absTarget, local.Path))
 			continue
 		}
-		merged, err := client.ApplyNoteDiff(ctx, vault.ID, id, "", local.Content, "tui-diff")
+		// No base is known for a file edited outside lumi; see the
+		// TODO on account.PushEdit (3-way merge, CRDT protocol §7.1).
+		merged, err := client.PushEdit(ctx, vault.ID, id, account.EditBase{}, local.Content)
 		if err != nil {
 			fmt.Fprintf(stderr, "Error: push %s: %v\n", relTo(absTarget, local.Path), err)
 			stats.PushFailed++
