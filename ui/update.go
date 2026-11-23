@@ -21,6 +21,9 @@ func animTick() tea.Cmd {
 
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.loadItems, animTick()}
+	if m.mouseOn {
+		cmds = append(cmds, tea.EnableMouseCellMotion)
+	}
 	if m.bookMgr != nil {
 		cmds = append(cmds, m.waitForBooks)
 	}
@@ -54,7 +57,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case itemsLoadedMsg:
-		m.items = msg.items
+		if msg.dir != "" && msg.dir != m.currentDir {
+			return m, nil // a listing for a folder we already left
+		}
+		m.allItems = msg.items
+		if m.filter != "" {
+			m.applyFilter()
+		} else {
+			m.items = msg.items
+		}
+		if m.pendingSelect != "" {
+			m.selectPath(m.pendingSelect)
+			m.pendingSelect = ""
+		}
+		if m.pane == PaneParent && m.currentDir == m.rootDir {
+			m.pane = PaneList
+		}
 		// Clamp the cursor: a history jump (`H`/`L`) restores the
 		// selection index that was valid when the folder was last
 		// visited, but the folder may have shrunk since.
@@ -107,12 +125,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case editorDoneMsg:
 		// Re-read note from disk after editor exits, then refresh items.
-		reloaded, err := filesystem.ReadNote(msg.notePath)
-		if err == nil {
-			m.openNote(reloaded)
+		// The feed manager pushes the edit (3-way, CRDT §7) right away.
+		cmds := []tea.Cmd{m.loadItems}
+		if m.mouseOn {
+			cmds = append(cmds, tea.EnableMouseCellMotion)
 		}
+		if msg.err != nil {
+			cmds = append(cmds, m.showToast("editor: "+msg.err.Error(), ToastError, 4*time.Second))
+		}
+		if reloaded, err := filesystem.ReadNote(msg.notePath); err == nil && msg.reopen {
+			line, col := m.lineCursor, m.colCursor
+			m.openNote(reloaded)
+			m.lineCursor, m.colCursor = line, col
+			m.clampCursor()
+		}
+		m.pendingSelect = msg.notePath
 		m.localEdit()
-		return m, m.loadItems
+		return m, tea.Batch(cmds...)
 
 	case toastDismissMsg:
 		if msg.id == m.toastID {
@@ -123,7 +152,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case booksChangedMsg:
 		return m.onBooksChanged()
 
+	case tea.MouseMsg:
+		return m.updateMouse(msg)
+
 	case tea.KeyMsg:
+		if m.showPalette {
+			return m.updatePalette(msg)
+		}
+		if m.showHelp {
+			return m.updateHelp(msg)
+		}
 		if m.showBooks {
 			return m.updateBooksPicker(msg)
 		}

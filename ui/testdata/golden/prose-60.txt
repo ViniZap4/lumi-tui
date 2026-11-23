@@ -1,0 +1,36 @@
+────────
+
+id: guide
+title: Guide
+tags: [docs]
+
+Field guide
+
+Some prose with bold,  code  and a link
+https://example.com.¹
+
+Tasks
+
+☐ write the spec
+☑ ship the TUI
+• plain bullet
+
+╭──────────────────────────────────────────────────────────╮
+│ ▲ Careful                                                │
+│ Lineage changes are never merged.                        │
+╰──────────────────────────────────────────────────────────╯
+
+╭──────────────────────────────────────────────────────────╮
+│ ℹ Note                                                   │
+│ A note callout.                                          │
+╰──────────────────────────────────────────────────────────╯
+
+ col                         │ value
+─────────────────────────────┼────────────────────────────
+ a                           │ 1
+
+ func main() { println("hi") }
+
+────────
+
+¹ The footnote text.

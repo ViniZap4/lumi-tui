@@ -1,0 +1,29 @@
+────────────────────────────────────────────────────────────────────────────────────────────────────
+> # Field guide
+
+  Some *prose* with **bold**, `code` and a [link](https://example.com).[^1]
+
+  ## Tasks
+
+  - [ ] write the spec
+  - [x] ship the TUI
+  - plain bullet
+
+  │ [!warning] Careful
+  │ Lineage changes are **never** merged.
+
+  │ [!note]
+  │ A note callout.
+
+  | col   | value   |
+  | ----- | ------- |
+  | a     | 1       |
+
+  ```go
+  func main() { println("hi") }
+  ```
+
+  [^1]: The footnote text.
+
+ j k line   ⌃d ⌃u half page   gg G top/end   e i edit   q Esc back   v V visual   y copy   …
+ READ  ~/guide.md · Ln 1 Col 1                                                                local

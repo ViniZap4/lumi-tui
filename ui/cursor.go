@@ -263,7 +263,7 @@ func (m *Model) halfPageUp() {
 
 // viewportHeight returns usable lines for note content.
 func (m *Model) viewportHeight() int {
-	h := m.height - 5 // status bar + help + padding
+	h := m.contentHeight() - 2 // title + rule; legend/status are chrome
 	if h < 1 {
 		h = 1
 	}

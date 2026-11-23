@@ -14,7 +14,7 @@ func (m Model) renderConfig() string {
 	sepWidth := 3 // " │ "
 	leftWidth := m.width * 38 / 100
 	rightWidth := m.width - leftWidth - sepWidth
-	colHeight := m.height
+	colHeight := m.contentHeight()
 
 	leftCol := m.renderConfigLeft(leftWidth, colHeight)
 	rightCol := m.renderConfigPreview(rightWidth, colHeight)

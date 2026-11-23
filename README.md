@@ -8,14 +8,21 @@ Built with [Go](https://golang.org) and [Bubbletea](https://github.com/charmbrac
 
 ## Features
 
-- Glamour markdown rendering with syntax highlighting
-- Inline image support (timg/chafa/viu)
-- Vim-like navigation (hjkl, visual mode, yank)
-- Wiki-link following (`[[link]]`)
-- Telescope-style search (filename and content)
-- Split views (horizontal/vertical)
-- External editor integration (`$EDITOR`)
-- Themes with live preview
+- yazi-style Miller columns (parent | list | preview) with the same keymap as
+  the web and Apple clients (`?` shows it): `j/k gg G ⌃d ⌃u` + counts, `h/l`,
+  `H/L` history, `~` root, `/` filter + `n/N`, `a` new (`a/b/name`, `dir/`),
+  `r` rename/move, `d` delete, `y/p` copy, `.` hidden, `zp` preview, `R`
+  refresh, `e/i` edit in `$EDITOR`, `space`/`:` palette, `[ ]` books,
+  `gb gs g1–9`, `⌃h/⌃l` pane focus, `,` settings
+- Prose preview: glamour + chroma highlighting, task boxes, tables,
+  `> [!note]` callouts as coloured boxes, footnotes
+- Command legend (which-key for `g`/`z`/counts) above a status line with the
+  book's sync state and pending pushes
+- Mouse: click selects, double-click opens, wheel scrolls (toggle in settings)
+- Offline-safe sync: 3-way `/diff` pushes guarded by the note's `crdt_epoch`
+  (a recreated note never absorbs an old offline edit; it is kept as
+  "(conflito offline)")
+- Inline images (timg/chafa/viu), wiki-links, split views, 12 themes
 
 ## Build & Run
 

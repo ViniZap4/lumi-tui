@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/vinizap/lumi/tui-client/editor"
 )
 
 func (m Model) updateNote(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -23,9 +22,67 @@ func (m Model) updateNote(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateNavModal(msg)
 	}
 
-	switch msg.String() {
-	case "q":
+	key := msg.String()
+	if m.treePrefix != "" {
+		prefix := m.treePrefix
+		m.treePrefix = ""
+		if prefix+key == "gg" {
+			m.moveToFileStart()
+			return m, nil
+		}
+		if prefix+key == "ge" {
+			m.moveToFileEnd()
+			return m, nil
+		}
+		if prefix+key == "gh" || prefix+key == "zh" {
+			m.viewMode = ViewTree
+			return m, m.goRoot()
+		}
+		if mm, cmd, ok := m.chord(prefix + key); ok {
+			return mm, cmd
+		}
+	}
+	if m.visualMode == VisualNone {
+		switch key {
+		case "q", "H":
+			m.splitMode, m.splitNote = "", nil
+			m.viewMode = ViewTree
+			if m.fullNote != nil {
+				m.pendingSelect = m.fullNote.Path
+				return m, m.loadItems
+			}
+			return m, nil
+		case "i":
+			if m.fullNote != nil {
+				return m, m.editCmd(&noteRef{note: m.fullNote, path: m.fullNote.Path, line: m.lineCursor, col: m.colCursor}, true)
+			}
+		case "g", "z":
+			m.treePrefix = key
+			return m, nil
+		case "{":
+			if prev := m.prevCheckboxLine(m.lineCursor); prev >= 0 {
+				m.lineCursor, m.colCursor, m.desiredCol = prev, 0, 0
+			} else {
+				m.statusMsg = "No previous checkbox"
+			}
+			return m, nil
+		case "}":
+			if next := m.nextCheckboxLine(m.lineCursor); next >= 0 {
+				m.lineCursor, m.colCursor, m.desiredCol = next, 0, 0
+			} else {
+				m.statusMsg = "No further checkbox"
+			}
+			return m, nil
+		}
+		if mm, cmd, ok := m.globalKey(key); ok {
+			return mm, cmd
+		}
+	}
+
+	switch key {
+	case "ctrl+c":
 		return m, tea.Quit
+
 	case "esc":
 		if m.visualMode != VisualNone {
 			m.visualMode = VisualNone
@@ -80,10 +137,7 @@ func (m Model) updateNote(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.updateVisualEnd()
 		} else {
 			if m.fullNote != nil {
-				notePath := m.fullNote.Path
-				return m, tea.ExecProcess(editor.OpenCmdAt(m.fullNote, m.lineCursor, m.colCursor), func(err error) tea.Msg {
-					return editorDoneMsg{notePath: notePath}
-				})
+				return m, m.editCmd(&noteRef{note: m.fullNote, path: m.fullNote.Path, line: m.lineCursor, col: m.colCursor}, true)
 			}
 		}
 
@@ -99,8 +153,6 @@ func (m Model) updateNote(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.updateVisualEnd()
 
 	// File navigation
-	case "g":
-		m.moveToFileStart()
 	case "G":
 		m.moveToFileEnd()
 
@@ -175,40 +227,6 @@ func (m Model) updateNote(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m, m.followLinkAtCursor()
 
-	// Quick checkbox toggle without the link-following hierarchy.
-	// Useful when a line carries BOTH a checkbox and a link — Enter
-	// would prefer the checkbox, but Space + l/k let the user pick.
-	case " ":
-		if m.visualMode == VisualNone {
-			if m.toggleCheckbox() {
-				m.statusMsg = "Toggled"
-				return m, nil
-			}
-		}
-
-	// Hop between checkboxes on the file (vim-]/[ family).
-	case "]":
-		if m.visualMode == VisualNone {
-			if next := m.nextCheckboxLine(m.lineCursor); next >= 0 {
-				m.lineCursor = next
-				m.colCursor = 0
-				m.desiredCol = 0
-			} else {
-				m.statusMsg = "No further checkbox"
-			}
-			return m, nil
-		}
-	case "[":
-		if m.visualMode == VisualNone {
-			if prev := m.prevCheckboxLine(m.lineCursor); prev >= 0 {
-				m.lineCursor = prev
-				m.colCursor = 0
-				m.desiredCol = 0
-			} else {
-				m.statusMsg = "No previous checkbox"
-			}
-			return m, nil
-		}
 	}
 
 	return m, nil

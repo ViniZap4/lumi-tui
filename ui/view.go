@@ -14,57 +14,54 @@ func (m Model) View() string {
 		return "Loading..."
 	}
 
-	var content string
-
-	// Confirm modal overlay (highest priority)
-	if m.showBooks && m.bookMgr != nil {
-		content = m.renderBooksPicker()
-	} else if m.showBookDetails && m.bookMgr != nil {
-		content = m.renderBookDetails()
-	} else if m.showConfirm {
-		content = m.renderWithConfirmModal(m.renderBase())
-	} else if m.showInput {
-		content = m.renderWithInputModal(m.renderBase())
-	} else if m.showSearch && !m.inFileSearch {
-		// Global search modal overlay
-		content = m.renderWithSearchModal(m.renderBase())
-	} else {
+	var body string
+	switch {
+	case m.showBooks && m.bookMgr != nil:
+		body = m.renderBooksPicker()
+	case m.showBookDetails && m.bookMgr != nil:
+		body = m.renderBookDetails()
+	case m.showSearch && !m.inFileSearch:
+		body = m.renderWithSearchModal(m.renderBase())
+	default:
 		switch m.viewMode {
 		case ViewHome:
-			content = m.renderHome()
+			body = m.renderHome()
 		case ViewConfig:
-			content = m.renderConfig()
+			body = m.renderConfig()
 		case ViewFullNote:
-			if m.showSearch && m.inFileSearch {
-				content = m.renderWithInFileSearch()
-			} else if m.showNav {
-				content = m.renderWithNavModal(m.renderFullNote())
-			} else if m.splitMode != "" && m.splitNote != nil {
-				content = m.renderSplitView()
-			} else {
-				content = m.renderFullNote()
+			switch {
+			case m.showSearch && m.inFileSearch:
+				body = m.renderWithInFileSearch()
+			case m.showNav:
+				body = m.renderWithNavModal(m.renderFullNote())
+			case m.splitMode != "" && m.splitNote != nil:
+				body = m.renderSplitView()
+			default:
+				body = m.renderFullNote()
 			}
 		default:
 			if m.showNav {
-				content = m.renderWithNavModal(m.renderTree())
+				body = m.renderWithNavModal(m.renderTree())
 			} else {
-				content = m.renderTree()
+				body = m.renderTree()
 			}
 		}
 	}
-
-	// Append persistent command bar (except for home view)
-	if cmdBar := m.renderCommandBar(); cmdBar != "" {
-		lines := strings.Split(content, "\n")
-		maxContent := m.height - 1
-		if len(lines) > maxContent {
-			lines = lines[:maxContent]
-		}
-		content = strings.Join(lines, "\n") + "\n" + cmdBar
+	body = fitHeight(body, m.contentHeight())
+	if m.showPalette {
+		body = m.overlayCenter(body, m.renderPalette(), true)
+	} else if m.showHelp {
+		body = m.overlayCenter(body, m.renderHelp(), false)
 	}
 
+	content := body
+	if m.legendVisible() {
+		content += "\n" + m.renderLegendRow()
+	}
+	if m.statusVisible() {
+		content += "\n" + m.renderStatusLine()
+	}
 	content = m.overlayToast(content)
-
 	return m.fillBg(content)
 }
 
@@ -128,104 +125,6 @@ func colorToAnsiBg(c lipgloss.Color) string {
 		return fmt.Sprintf("\x1b[48;5;%dm", n)
 	}
 	return ""
-}
-
-// renderCommandBar returns a context-aware keybind bar for the bottom of the screen.
-func (m Model) renderCommandBar() string {
-	var keys []struct{ key, desc string }
-
-	switch {
-	case m.showConfirm:
-		keys = []struct{ key, desc string }{
-			{"y/enter", "confirm"},
-			{"n/esc", "cancel"},
-		}
-	case m.showInput:
-		keys = []struct{ key, desc string }{
-			{"enter", "confirm"},
-			{"esc", "cancel"},
-		}
-	case m.showSearch && !m.inFileSearch:
-		keys = []struct{ key, desc string }{
-			{"ctrl+f", "toggle"},
-			{"up/dn", "navigate"},
-			{"enter", "open"},
-			{"esc", "close"},
-		}
-	case m.showNav:
-		if m.pendingMoveNote != nil || m.pendingMoveFolder != "" {
-			keys = []struct{ key, desc string }{
-				{"hjkl", "navigate"},
-				{"enter", "move here"},
-				{"esc", "cancel"},
-			}
-		} else {
-			keys = []struct{ key, desc string }{
-				{"hjkl", "navigate"},
-				{"enter", "open"},
-				{"s/S", "split"},
-				{"esc", "close"},
-			}
-		}
-	default:
-		switch m.viewMode {
-		case ViewTree:
-			keys = []struct{ key, desc string }{
-				{"j/k", "move"},
-				{"l/enter", "open"},
-				{"h", "back"},
-				{"n", "new note"},
-				{"N", "new folder"},
-				{"r", "rename"},
-				{"d", "delete"},
-				{"m", "move"},
-				{"/", "search"},
-				{"gb", "livros"},
-				{"q", "quit"},
-			}
-		case ViewFullNote:
-			keys = []struct{ key, desc string }{
-				{"j/k", "move"},
-				{"w/b", "word"},
-				{"v/V", "visual"},
-				{"y", "yank"},
-				{"e", "edit"},
-				{"enter", "follow"},
-				{"L", "link"},
-				{"t", "tree"},
-				{"/", "search"},
-				{"esc", "back"},
-			}
-		case ViewConfig:
-			keys = []struct{ key, desc string }{
-				{"j/k", "move"},
-				{"h/l", "change"},
-				{"enter", "select"},
-				{"esc", "back"},
-			}
-		default:
-			return ""
-		}
-	}
-
-	var parts []string
-	for _, k := range keys {
-		key := lipgloss.NewStyle().Foreground(secondaryColor).Bold(true).Render(k.key)
-		desc := lipgloss.NewStyle().Foreground(mutedColor).Render(" " + k.desc)
-		parts = append(parts, key+desc)
-	}
-
-	bar := strings.Join(parts, "  ")
-	if seg := m.renderBookSegment(); seg != "" {
-		// Right-align the book status segment when there is room.
-		gap := m.width - 2 - lipgloss.Width(bar) - lipgloss.Width(seg)
-		if gap >= 2 {
-			bar += strings.Repeat(" ", gap) + seg
-		} else {
-			bar = seg + "  " + bar
-		}
-	}
-	return lipgloss.NewStyle().Padding(0, 1).Render(bar)
 }
 
 func (m Model) renderBase() string {

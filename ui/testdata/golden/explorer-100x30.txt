@@ -1,0 +1,29 @@
+────────────────────────────────────────────────────────────────────────────────────────────────────
+                   │  ▸ projects/                       │  Guide
+                      > Guide                              Jan 1, 0001
+                                                           ───────────────────────────────────────
+                                                           #docs
+
+                                                           Field guide
+
+                                                           Some prose with bold,  code  and a link
+                                                           https://example.com.¹
+
+                                                           Tasks
+
+                                                           ☐ write the spec
+                                                           ☑ ship the TUI
+                                                           • plain bullet
+
+                                                           ╭──────────────────────────────────────╮
+                                                           │ ▲ Careful                            │
+                                                           │ Lineage changes are never merged.    │
+                                                           ╰──────────────────────────────────────╯
+
+                                                           ╭──────────────────────────────────────╮
+                                                           │ ℹ Note                               │
+                                                           │ A note callout.                      │
+                                                           ╰──────────────────────────────────────╯
+                                                           1–20 / 30
+ j k move   h l folder   ⏎ open   e i edit   / filter   a new   r rename   d delete   y p copy   …
+ EXPLORE  ~ · 2/2                                                                             local

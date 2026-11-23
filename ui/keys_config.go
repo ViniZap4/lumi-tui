@@ -36,8 +36,15 @@ func (m Model) buildConfigItems(cfg *config.Config) []ConfigItem {
 		{Label: "Light theme", Kind: ConfigCycle, Key: "light_theme", Value: cfg.LightTheme, Options: lightNames},
 
 		{Label: "Editor", Kind: ConfigHeader},
-		{Label: "Command", Kind: ConfigCycle, Key: "editor", Value: editorFull, Options: []string{editorFull}},
-		{Label: "Open in editor", Kind: ConfigAction, Key: "open_editor"},
+		{Label: "Command", Kind: ConfigInput, Key: "editor", Value: editorFull},
+		{Label: "Open config file", Kind: ConfigAction, Key: "open_editor"},
+
+		{Label: "Explorer", Kind: ConfigHeader},
+		{Label: "Preview column", Kind: ConfigCycle, Key: "show_preview", Value: boolStr(!m.previewHidden), Options: []string{"off", "on"}},
+		{Label: "Command legend", Kind: ConfigCycle, Key: "show_legend", Value: boolStr(m.legendOn), Options: []string{"off", "on"}},
+		{Label: "Pane navigation", Kind: ConfigCycle, Key: "pane_nav", Value: boolStr(m.paneNav), Options: []string{"off", "on"}},
+		{Label: "Mouse", Kind: ConfigCycle, Key: "mouse", Value: boolStr(m.mouseOn), Options: []string{"off", "on"}},
+		{Label: "Hidden files", Kind: ConfigCycle, Key: "show_hidden", Value: boolStr(m.showHidden), Options: []string{"off", "on"}},
 
 		{Label: "Display", Kind: ConfigHeader},
 		{Label: "Line numbers", Kind: ConfigCycle, Key: "show_line_numbers", Value: boolStr(cfg.ShowLineNumbers), Options: []string{"off", "on"}},
@@ -55,11 +62,28 @@ func (m Model) buildConfigItems(cfg *config.Config) []ConfigItem {
 
 func (m Model) updateConfig(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "esc":
+	case "esc", ",", "q":
 		m.viewMode = m.previousView
-		return m, nil
-	case "q":
+		if m.viewMode == ViewConfig || m.viewMode == ViewHome {
+			m.viewMode = ViewTree
+		}
+		return m, m.loadItems
+	case "ctrl+c":
 		return m, tea.Quit
+	case "g":
+		for i, it := range m.configItems {
+			if it.Kind != ConfigHeader {
+				m.configCursor = i
+				break
+			}
+		}
+	case "G":
+		for i := len(m.configItems) - 1; i >= 0; i-- {
+			if m.configItems[i].Kind != ConfigHeader {
+				m.configCursor = i
+				break
+			}
+		}
 	case "j", "down":
 		m.configMoveDown()
 	case "k", "up":
@@ -99,7 +123,7 @@ func (m Model) configCycleForward() (Model, tea.Cmd) {
 	switch item.Kind {
 	case ConfigCycle:
 		item.Value = cycleOption(item.Options, item.Value, 1)
-		m.applyConfigChange(item.Key, item.Value)
+		return m, m.applyConfigChange(item.Key, item.Value)
 	case ConfigAction:
 		if item.Key == "open_editor" {
 			return m, m.openConfig()
@@ -125,14 +149,19 @@ func (m Model) configCycleBackward() (Model, tea.Cmd) {
 
 	if item.Kind == ConfigCycle {
 		item.Value = cycleOption(item.Options, item.Value, -1)
-		m.applyConfigChange(item.Key, item.Value)
+		return m, m.applyConfigChange(item.Key, item.Value)
 	}
 	return m, nil
 }
 
-func (m *Model) applyConfigChange(key, value string) {
+func (m *Model) applyConfigChange(key, value string) tea.Cmd {
 	cfg := m.configCfg
+	if cfg == nil {
+		cfg = config.Load()
+		m.configCfg = cfg
+	}
 	themeChanged := false
+	var cmd tea.Cmd
 
 	switch key {
 	case "theme_mode":
@@ -155,9 +184,35 @@ func (m *Model) applyConfigChange(key, value string) {
 	case "default_search_type":
 		cfg.SearchType = value
 		m.searchType = value
+	case "editor":
+		if parts := strings.Fields(value); len(parts) > 0 {
+			cfg.Editor, cfg.EditorArgs = parts[0], parts[1:]
+		}
+	case "show_preview":
+		cfg.ShowPreview = value == "on"
+		m.previewHidden = !cfg.ShowPreview
+	case "show_legend":
+		cfg.ShowLegend = value == "on"
+		m.legendOn = cfg.ShowLegend
+	case "pane_nav":
+		cfg.PaneNav = value == "on"
+		m.paneNav = cfg.PaneNav
+		if !m.paneNav {
+			m.pane = PaneList
+		}
+	case "mouse":
+		cfg.Mouse = value == "on"
+		m.mouseOn = cfg.Mouse
+		cmd = tea.DisableMouse
+		if m.mouseOn {
+			cmd = tea.EnableMouseCellMotion
+		}
+	case "show_hidden":
+		cfg.ShowHidden = value == "on"
+		m.showHidden = cfg.ShowHidden
 	}
 
-	cfg.Save()
+	_ = cfg.Save()
 
 	if themeChanged {
 		theme.Resolve(cfg.ThemeMode, cfg.DarkTheme, cfg.LightTheme)
@@ -171,6 +226,7 @@ func (m *Model) applyConfigChange(key, value string) {
 			m.renderer = renderer
 		}
 	}
+	return cmd
 }
 
 func cycleOption(options []string, current string, direction int) string {

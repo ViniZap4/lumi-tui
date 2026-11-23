@@ -241,42 +241,6 @@ func (m Model) renderFullNote() string {
 		s.WriteString("\n")
 	}
 
-	// --- Footer: separator + status bar ---
-	s.WriteString(lipgloss.NewStyle().
-		Foreground(theme.Current.Separator).
-		Render(strings.Repeat("─", m.width)))
-	s.WriteString("\n")
-
-	if m.statusMsg != "" {
-		s.WriteString(StatusBarStyle.Width(m.width).Render(" " + m.statusMsg))
-	} else {
-		// Right-aligned position + mode pill; left-aligned note id so
-		// the user always knows which file they're looking at. The
-		// space between scales with terminal width.
-		noteID := ""
-		if m.fullNote != nil {
-			noteID = m.fullNote.Path
-			if noteID == "" {
-				noteID = m.fullNote.ID
-			}
-		}
-		left := lipgloss.NewStyle().Foreground(theme.Current.TextDim).Render(" " + noteID)
-		right := lipgloss.NewStyle().Foreground(theme.Current.TextDim).
-			Render(fmt.Sprintf("Ln %d  Col %d%s ", m.lineCursor+1, m.colCursor+1, m.modeIndicator()))
-		lw := lipgloss.Width(left)
-		rw := lipgloss.Width(right)
-		gap := m.width - lw - rw
-		if gap < 1 {
-			// Truncate the left side rather than the position pill on
-			// narrow windows.
-			left = lipgloss.NewStyle().Foreground(theme.Current.TextDim).
-				Render(" " + truncateForBar(noteID, max(0, m.width-rw-2)))
-			lw = lipgloss.Width(left)
-			gap = max(1, m.width-lw-rw)
-		}
-		s.WriteString(StatusBarStyle.Width(m.width).Render(left + strings.Repeat(" ", gap) + right))
-	}
-
 	return s.String()
 }
 

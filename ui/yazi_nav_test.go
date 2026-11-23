@@ -464,20 +464,13 @@ func TestTreeExistingBindingsStillDispatch(t *testing.T) {
 			},
 		},
 		{
-			name: "n opens the create-note input",
-			keys: []string{"n"},
+			// web/Apple parity: `a` creates (notes, a/b/name, dir/);
+			// n/N are next/prev match.
+			name: "a opens the create prompt",
+			keys: []string{"a"},
 			assert: func(t *testing.T, m Model) {
 				if !m.showInput || m.inputMode != "create" {
 					t.Fatalf("showInput = %v, inputMode = %q; want create input", m.showInput, m.inputMode)
-				}
-			},
-		},
-		{
-			name: "N opens the create-folder input",
-			keys: []string{"N"},
-			assert: func(t *testing.T, m Model) {
-				if !m.showInput || m.inputMode != "create_folder" {
-					t.Fatalf("showInput = %v, inputMode = %q; want create_folder input", m.showInput, m.inputMode)
 				}
 			},
 		},

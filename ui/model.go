@@ -181,6 +181,44 @@ type Model struct {
 	configCfg    *config.Config
 	previousView ViewMode
 
+	// --- Explorer v2 (web/Apple parity) ---
+
+	// pane is the focused explorer column (Ctrl-h/l).
+	pane Pane
+	// parentCursor is the selection in the parent column when it has
+	// focus; previewScroll the first visible preview line.
+	parentCursor  int
+	previewScroll int
+	// count is a pending numeric prefix ("5" in 5j).
+	count string
+	// showHidden lists dot files and folders (`.`).
+	showHidden bool
+	// legendOn / paneNav / mouseOn mirror the settings.
+	legendOn bool
+	paneNav  bool
+	mouseOn  bool
+	// filter narrows the current folder in place (`/`). allItems is the
+	// unfiltered listing; filterTyping is true while the prompt is open.
+	filter       string
+	filterTyping bool
+	allItems     []Item
+	// yanked is the note `y` copied; `p` pastes a copy.
+	yanked *Item
+	// Palette (`:` / space), help (`?`).
+	showPalette   bool
+	paletteQuery  string
+	paletteCursor int
+	paletteNotes  []paletteEntry
+	showHelp      bool
+	helpScroll    int
+	// lastClick drives double-click detection.
+	lastClick clickInfo
+	// pendingSelect is a path to put the cursor on after the next
+	// listing load (create, paste, palette jump).
+	pendingSelect string
+	// prose caches rendered markdown previews (shared across copies).
+	prose *proseCache
+
 	// initialNotePath holds an absolute path the user passed at the
 	// command line (`lumi some/note.md`). When set, the first
 	// itemsLoadedMsg handler auto-opens the matching note and clears
@@ -204,14 +242,21 @@ func NewModel(rootDir string) Model {
 	)
 
 	return Model{
-		rootDir:      rootDir,
-		currentDir:   rootDir,
-		navDir:       rootDir,
-		items:        []Item{},
-		viewMode:     ViewHome,
-		renderer:     renderer,
-		searchType:   cfg.SearchType,
-		folderConfig: folderCfg,
+		rootDir:       rootDir,
+		currentDir:    rootDir,
+		navDir:        rootDir,
+		items:         []Item{},
+		viewMode:      ViewHome,
+		renderer:      renderer,
+		searchType:    cfg.SearchType,
+		folderConfig:  folderCfg,
+		pane:          PaneList,
+		previewHidden: !cfg.ShowPreview,
+		showHidden:    cfg.ShowHidden,
+		legendOn:      cfg.ShowLegend,
+		paneNav:       cfg.PaneNav,
+		mouseOn:       cfg.Mouse,
+		prose:         newProseCache(),
 	}
 }
 

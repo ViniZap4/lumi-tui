@@ -42,8 +42,9 @@ func (m Model) renderTree() string {
 	s.WriteString(sepLine)
 	s.WriteByte('\n')
 
-	// Three columns. Reserve 3 lines (header + separator + cmd bar).
-	colHeight := m.height - 3
+	// Three columns under the header + separator; the legend and the
+	// status line are screen chrome (chrome.go).
+	colHeight := m.contentHeight() - treeTop
 	if colHeight < 1 {
 		colHeight = 1
 	}
@@ -236,60 +237,55 @@ func (m Model) displayPath() string {
 // produced on long folder names like "Major Conferences & Venues
 // (publish-or-perish guide)".
 func (m Model) renderParentCol(width, height int) string {
-	if m.currentDir == m.rootDir || width < 4 {
-		// Nothing useful to show.
+	items := m.parentItems()
+	if len(items) == 0 || width < 4 {
 		return lipgloss.NewStyle().Width(width).Height(height).Render("")
 	}
-
 	var s strings.Builder
-
-	parentDir := filepath.Dir(m.currentDir)
-	parentItems, _ := filesystem.ListFolders(parentDir)
-	parentNotes, _ := filesystem.ListNotes(parentDir)
-
-	maxItems := height - 1
-	if maxItems < 1 {
-		maxItems = 1
-	}
-	count := 0
-	innerWidth := width - 1 // 1-col left padding
-
-	for _, f := range parentItems {
-		if count >= maxItems {
-			break
+	sel := m.parentSel(items)
+	start, rows := listWindow(sel, len(items), height)
+	innerWidth := width - 1
+	focused := m.pane == PaneParent
+	for i := start; i < len(items) && i < start+rows; i++ {
+		it := items[i]
+		isCurrent := it.Path == m.currentDir
+		name := it.Name
+		if it.IsFolder {
+			name += "/"
 		}
-		isCurrent := f.Path == m.currentDir
 		prefix := "  "
 		if isCurrent {
 			prefix = "▸ "
 		}
-		name := truncate(f.Name+"/", innerWidth-2)
-		line := prefix + name
-		style := lipgloss.NewStyle().Foreground(secondaryColor)
+		line := " " + prefix + truncate(name, innerWidth-3)
+		style := lipgloss.NewStyle().Foreground(theme.Current.TextDim)
+		if it.IsFolder {
+			style = style.Foreground(secondaryColor)
+		}
 		if isCurrent {
 			style = style.Bold(true).Foreground(accentColor)
 		}
-		s.WriteString(style.Render(" " + line))
-		s.WriteByte('\n')
-		count++
-	}
-
-	for _, n := range parentNotes {
-		if count >= maxItems {
-			break
+		if focused && i == sel {
+			style = lipgloss.NewStyle().Foreground(theme.Current.Background).Background(accentColor).Bold(true).Width(innerWidth + 1)
 		}
-		name := truncate(n.Title, innerWidth-2)
-		s.WriteString(lipgloss.NewStyle().
-			Foreground(theme.Current.TextDim).
-			Render("   " + name))
+		s.WriteString(style.Render(line))
 		s.WriteByte('\n')
-		count++
 	}
+	return lipgloss.NewStyle().Width(width).Height(height).Render(s.String())
+}
 
-	return lipgloss.NewStyle().
-		Width(width).
-		Height(height).
-		Render(s.String())
+// parentSel is the highlighted parent row: the focused cursor, or the
+// folder we are in.
+func (m Model) parentSel(items []Item) int {
+	if m.pane == PaneParent {
+		return clamp(m.parentCursor, 0, len(items)-1)
+	}
+	for i, it := range items {
+		if it.Path == m.currentDir {
+			return i
+		}
+	}
+	return 0
 }
 
 // renderCenterCol paints the active list. Folders get a `▸` arrow,
@@ -384,6 +380,13 @@ func (m Model) renderCenterRow(item Item, innerWidth int, selected bool) string 
 	row := prefix + name
 
 	switch {
+	case selected && m.pane != PaneList:
+		// Another pane has focus: keep the selection visible but quiet.
+		return lipgloss.NewStyle().
+			Foreground(theme.Current.Text).
+			Background(theme.Current.SelectedBg).
+			Width(innerWidth + 1).
+			Render(row)
 	case selected:
 		// Inverted highlight (accent bg + theme-bg fg). The
 		// foreground=accent + background=selectedBg pattern was
@@ -542,27 +545,28 @@ func (m Model) renderNotePreview(item Item, width, height, innerWidth int) strin
 		s.WriteByte('\n')
 	}
 
-	// Body excerpt: collapse all paragraphs into one stream of words and
-	// word-wrap to the column width. This avoids the previous "every
-	// non-empty line truncated to width" behaviour which produced a
-	// column full of partial sentences and "..." marks.
-	rows := height - 6
+	// Body: prose rendering (glamour + callouts + footnotes), scrolled
+	// by previewScroll (⌃j/⌃k, or j/k with the preview focused).
+	rows := height - 5 // title, date, rule, blank, position marker
+	if len(item.Note.Tags) > 0 {
+		rows--
+	}
 	if rows < 1 {
 		rows = 1
 	}
-	body := bodyExcerpt(item.Note.Content)
-	wrapped := wrapWords(body, innerWidth)
-	if len(wrapped) > rows {
-		wrapped = wrapped[:rows]
-	}
-	for _, line := range wrapped {
-		s.WriteString(lipgloss.NewStyle().
-			Foreground(theme.Current.TextDim).
-			Render(" " + line))
+	lines := strings.Split(m.prose.render(item.Note.Content, innerWidth), "\n")
+	off := clamp(m.previewScroll, 0, max(0, len(lines)-rows))
+	end := min(len(lines), off+rows)
+	for _, line := range lines[off:end] {
+		s.WriteString(" " + line + "\x1b[0m")
 		s.WriteByte('\n')
 	}
+	if off > 0 || end < len(lines) {
+		s.WriteString(lipgloss.NewStyle().Foreground(mutedColor).Italic(true).
+			Render(fmt.Sprintf(" %d–%d / %d", off+1, end, len(lines))))
+	}
 
-	return lipgloss.NewStyle().Width(width).Height(height).Render(s.String())
+	return lipgloss.NewStyle().Width(width).Height(height).MaxHeight(height).Render(s.String())
 }
 
 // bodyExcerpt produces a single space-collapsed string from the note

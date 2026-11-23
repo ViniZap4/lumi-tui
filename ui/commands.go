@@ -39,6 +39,7 @@ const (
 
 type itemsLoadedMsg struct {
 	items []Item
+	dir   string
 }
 
 type navItemsLoadedMsg struct {
@@ -50,9 +51,12 @@ type searchResultsMsg struct {
 	gen     int // generation stamp; Update drops results whose gen != m.searchGen
 }
 
-// editorDoneMsg is sent after the editor exits so the note is re-read from disk.
+// editorDoneMsg is sent after the editor exits so the note is re-read
+// from disk. reopen: the edit started in the reader (show it again).
 type editorDoneMsg struct {
 	notePath string
+	reopen   bool
+	err      error
 }
 
 // toastDismissMsg auto-dismisses a toast after a timeout.
@@ -74,28 +78,7 @@ func (m *Model) showToast(msg string, level ToastLevel, d time.Duration) tea.Cmd
 }
 
 func (m Model) loadItems() tea.Msg {
-	var items []Item
-
-	folders, _ := filesystem.ListFolders(m.currentDir)
-	for _, f := range folders {
-		items = append(items, Item{
-			Name:     f.Name,
-			IsFolder: true,
-			Path:     f.Path,
-		})
-	}
-
-	notes, _ := filesystem.ListNotes(m.currentDir)
-	for _, n := range notes {
-		items = append(items, Item{
-			Name:     n.Title,
-			IsFolder: false,
-			Path:     n.Path,
-			Note:     n,
-		})
-	}
-
-	return itemsLoadedMsg{items}
+	return itemsLoadedMsg{items: listDir(m.currentDir, m.showHidden), dir: m.currentDir}
 }
 
 func (m Model) loadNavItems() tea.Msg {

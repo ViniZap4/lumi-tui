@@ -1,0 +1,64 @@
+package ui
+
+import (
+	"flag"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+	"github.com/vinizap/lumi/tui-client/theme"
+)
+
+var update = flag.Bool("update", false, "rewrite golden files")
+
+// TestMain isolates every UI test from the owner's real config: HOME
+// and XDG_CONFIG_HOME point at a temp dir (config.Load/Save, books,
+// accounts), and $EDITOR is a no-op. Rendering is plain ASCII colour
+// profile so golden files are stable.
+func TestMain(m *testing.M) {
+	tmp, err := os.MkdirTemp("", "lumi-ui-test-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("HOME", tmp)
+	os.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, ".config"))
+	os.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, ".cache"))
+	os.Setenv("EDITOR", "true")
+	lipgloss.SetColorProfile(termenv.Ascii)
+	theme.Resolve("dark", "tokyo-night", "catppuccin-latte")
+	ApplyTheme()
+	code := m.Run()
+	os.RemoveAll(tmp)
+	os.Exit(code)
+}
+
+// golden compares got with testdata/golden/<name>.txt (-update writes).
+func golden(t *testing.T, name, got string) {
+	t.Helper()
+	got = stripAnsi(got)
+	var lines []string
+	for _, l := range strings.Split(got, "\n") {
+		lines = append(lines, strings.TrimRight(l, " "))
+	}
+	got = strings.Join(lines, "\n") + "\n"
+	path := filepath.Join("testdata", "golden", name+".txt")
+	if *update {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("missing golden %s (run go test ./ui -run %s -update): %v", path, t.Name(), err)
+	}
+	if string(want) != got {
+		t.Errorf("golden %s mismatch\n--- want\n%s\n--- got\n%s", name, want, got)
+	}
+}
