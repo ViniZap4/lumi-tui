@@ -22,6 +22,13 @@ type Config struct {
 	CursorStyle     string // "block", "underline", "bar"
 	PreviewLines    int
 	SearchType      string // "filename" or "content"
+
+	// Explorer (web/Apple parity)
+	ShowPreview bool // preview column (zp toggles it for the session)
+	ShowLegend  bool // one-line command legend above the status line
+	PaneNav     bool // Ctrl-h/j/k/l pane focus
+	Mouse       bool // click / wheel / double-click
+	ShowHidden  bool // dot files and folders in listings (`.`)
 }
 
 func Load() *Config {
@@ -35,6 +42,10 @@ func Load() *Config {
 		CursorStyle:     "block",
 		PreviewLines:    10,
 		SearchType:      "filename",
+		ShowPreview:     true,
+		ShowLegend:      true,
+		PaneNav:         true,
+		Mouse:           true,
 	}
 
 	// UserHomeDir falls back to $HOME on Unix and the registry on
@@ -102,6 +113,16 @@ func Load() *Config {
 			if value == "filename" || value == "content" {
 				cfg.SearchType = value
 			}
+		case "show_preview":
+			cfg.ShowPreview = value != "false"
+		case "show_legend":
+			cfg.ShowLegend = value != "false"
+		case "pane_nav":
+			cfg.PaneNav = value != "false"
+		case "mouse":
+			cfg.Mouse = value != "false"
+		case "show_hidden":
+			cfg.ShowHidden = value == "true"
 		}
 	}
 
@@ -124,10 +145,13 @@ func (c *Config) Save() error {
 		editorCmd += " " + strings.Join(c.EditorArgs, " ")
 	}
 
-	showLn := "false"
-	if c.ShowLineNumbers {
-		showLn = "true"
+	b := func(v bool) string {
+		if v {
+			return "true"
+		}
+		return "false"
 	}
+	showLn := b(c.ShowLineNumbers)
 
 	content := fmt.Sprintf(`# Lumi Configuration
 
@@ -144,7 +168,15 @@ show_line_numbers: %s
 cursor_style: %s
 preview_lines: %d
 default_search_type: %s
-`, editorCmd, c.ThemeMode, c.DarkTheme, c.LightTheme, showLn, c.CursorStyle, c.PreviewLines, c.SearchType)
+
+# Explorer
+show_preview: %s
+show_legend: %s
+pane_nav: %s
+mouse: %s
+show_hidden: %s
+`, editorCmd, c.ThemeMode, c.DarkTheme, c.LightTheme, showLn, c.CursorStyle, c.PreviewLines, c.SearchType,
+		b(c.ShowPreview), b(c.ShowLegend), b(c.PaneNav), b(c.Mouse), b(c.ShowHidden))
 
 	return os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(content), 0644)
 }
