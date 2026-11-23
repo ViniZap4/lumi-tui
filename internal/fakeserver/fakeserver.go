@@ -8,6 +8,10 @@
 //     (DiffOmitState drops `state`, like older servers);
 //     no base_state → 409 base_required; unknown base_state → 409 base_mismatch;
 //     expired base_state (ExpireHistory) → 409 base_too_old
+//   - GET  /api/vaults/:v/notes/:id/state-vector → {id, crdt_epoch, state_vector}
+//     (NoStateVector answers a plain-text 404, like servers before 0008)
+//   - every note DTO carries `crdt_epoch` (NoEpochs leaves it out);
+//     Recreate(id, text) starts a new CRDT history under the same id
 //   - GET  /api/vaults/:v/changes?after=N, GET /api/vaults/:v/notes,
 //     GET /api/vaults, GET /api/vaults/:v/notes/:id/content
 //
@@ -23,6 +27,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,7 +38,9 @@ type Note struct {
 	ID, Path, Title string
 	Text            string
 	Seq             int64
+	Epoch           string
 	version         int
+	client          uint64 // the history's Yjs client id
 }
 
 // DiffRequest records one POST /diff body.
@@ -70,6 +77,13 @@ type Server struct {
 	DiffOmitState bool
 	// Events, when set, serves GET /api/events (the SSE feed).
 	Events http.HandlerFunc
+	// NoEpochs omits `crdt_epoch` everywhere (pre-0008 server).
+	NoEpochs bool
+	// NoStateVector makes /state-vector an unknown route.
+	NoStateVector bool
+
+	stateVectors int
+	epochSeq     int
 }
 
 // Head returns the vault's current change seq.
@@ -96,8 +110,84 @@ func (s *Server) stateLocked(n *Note) string {
 	return t
 }
 
+// clock is the note's lib0-v1 state vector: one client (the history's)
+// whose clock grows with every version.
 func clock(n *Note) string {
-	return base64.StdEncoding.EncodeToString([]byte("sv" + strconv.Itoa(n.version)))
+	return EncodeSV(map[uint64]uint64{n.client: uint64(n.version + 1)})
+}
+
+// EncodeSV encodes a lib0-v1 state vector (base64), clients ascending.
+func EncodeSV(sv map[uint64]uint64) string {
+	keys := make([]uint64, 0, len(sv))
+	for k := range sv {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	buf := putUvarint(nil, uint64(len(keys)))
+	for _, k := range keys {
+		buf = putUvarint(buf, k)
+		buf = putUvarint(buf, sv[k])
+	}
+	return base64.StdEncoding.EncodeToString(buf)
+}
+
+func putUvarint(b []byte, v uint64) []byte {
+	for v >= 0x80 {
+		b = append(b, byte(v)|0x80)
+		v >>= 7
+	}
+	return append(b, byte(v))
+}
+
+func (s *Server) newEpochLocked() (string, uint64) {
+	s.epochSeq++
+	return fmt.Sprintf("epoch-%02d", s.epochSeq), uint64(100 + s.epochSeq)
+}
+
+// Epoch returns a note's current crdt_epoch.
+func (s *Server) Epoch(id string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.notes[id].Epoch
+}
+
+// StateVectors returns how many GET /state-vector requests were served.
+func (s *Server) StateVectors() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stateVectors
+}
+
+// Recreate deletes and recreates a note under the same id (protocol
+// §12.1): a new epoch and a new history; state tokens of the old
+// history are no longer known.
+func (s *Server) Recreate(id, text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := s.notes[id]
+	for t := range s.states {
+		if strings.HasPrefix(mustDecode(t), n.ID+"@") {
+			delete(s.states, t)
+		}
+	}
+	n.Epoch, n.client = s.newEpochLocked()
+	n.Text = text
+	n.version += 5000
+	s.head++
+	n.Seq = s.head
+	s.stateLocked(n)
+}
+
+func mustDecode(t string) string {
+	b, _ := base64.StdEncoding.DecodeString(t)
+	return string(b)
+}
+
+func (s *Server) epochField(m map[string]any, n *Note) map[string]any {
+	if !s.NoEpochs {
+		m["crdt_epoch"] = n.Epoch
+	}
+	return m
 }
 
 // AddNote creates a note.
@@ -106,6 +196,7 @@ func (s *Server) AddNote(id, path, text string) {
 	defer s.mu.Unlock()
 	s.head++
 	n := &Note{ID: id, Path: path, Title: strings.ToUpper(id[:1]) + id[1:], Text: text, Seq: s.head}
+	n.Epoch, n.client = s.newEpochLocked()
 	s.notes[id] = n
 	s.order = append(s.order, id)
 	s.stateLocked(n)
@@ -209,8 +300,8 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) row(n *Note) map[string]any {
-	return map[string]any{"id": n.ID, "vault_id": s.VaultID, "path": n.Path, "title": n.Title,
-		"created_at": "2026-11-01T10:00:00Z", "updated_at": "2026-11-01T10:00:00Z", "change_seq": n.Seq}
+	return s.epochField(map[string]any{"id": n.ID, "vault_id": s.VaultID, "path": n.Path, "title": n.Title,
+		"created_at": "2026-11-01T10:00:00Z", "updated_at": "2026-11-01T10:00:00Z", "change_seq": n.Seq}, n)
 }
 
 func (s *Server) changes(w http.ResponseWriter, r *http.Request) {
@@ -250,10 +341,21 @@ func (s *Server) note(w http.ResponseWriter, r *http.Request, id, op string) {
 	case op == "snapshot" && r.Method == http.MethodGet:
 		s.mu.Lock()
 		s.snapshots++
-		body := map[string]any{"id": n.ID, "path": n.Path, "text": n.Text, "vector_clock": clock(n)}
+		body := s.epochField(map[string]any{"id": n.ID, "path": n.Path, "text": n.Text, "vector_clock": clock(n)}, n)
 		if !s.OmitState {
 			body["state"] = s.stateLocked(n)
 		}
+		s.mu.Unlock()
+		writeJSON(w, 200, body)
+	case op == "state-vector" && r.Method == http.MethodGet:
+		if s.NoStateVector {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte("Cannot GET " + r.URL.Path))
+			return
+		}
+		s.mu.Lock()
+		s.stateVectors++
+		body := s.epochField(map[string]any{"id": n.ID, "state_vector": clock(n)}, n)
 		s.mu.Unlock()
 		writeJSON(w, 200, body)
 	case op == "content" && r.Method == http.MethodGet:
@@ -326,7 +428,7 @@ func (s *Server) diff(w http.ResponseWriter, r *http.Request, n *Note) {
 		n.Seq = s.head
 		s.stateLocked(n)
 	}
-	out := map[string]any{"id": n.ID, "path": n.Path, "text": n.Text, "vector_clock": clock(n)}
+	out := s.epochField(map[string]any{"id": n.ID, "path": n.Path, "text": n.Text, "vector_clock": clock(n)}, n)
 	if !s.DiffOmitState {
 		out["state"] = s.stateLocked(n)
 	}

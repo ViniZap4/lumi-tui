@@ -17,8 +17,13 @@ import (
 // or right after a successful push (CRDT-CLIENT-PROTOCOL §7.1 step 1).
 // State is the base64 full Yjs document; it is what POST /diff needs as
 // `base_state` to merge the local edit 3-way instead of overwriting.
+//
+// CRDTEpoch is the lineage the state belongs to (CRDT-CLIENT-PROTOCOL
+// §12.5): a push never merges a base into a different history. Empty
+// for bases saved before the server had epochs (fallback check).
 type Base struct {
 	NoteID      string    `json:"note_id"`
+	CRDTEpoch   string    `json:"crdt_epoch,omitempty"`
 	Text        string    `json:"text"`
 	VectorClock string    `json:"vector_clock"`
 	State       string    `json:"state"`

@@ -71,6 +71,10 @@ type PushResult struct {
 	Outcome      PushOutcome
 	Path         string // the note, relative to Root
 	ConflictPath string // the saved local copy, relative to Root (PushConflict)
+	// Lineage is set when the conflict was a CRDT lineage change
+	// (§12.5): the note was recreated on the server, so the local text
+	// was saved as "<title> (conflito offline)" instead of merged.
+	Lineage bool
 }
 
 func (s *Syncer) now() time.Time {
@@ -93,8 +97,8 @@ func (s *Syncer) Record(noteID, absPath string, snap *account.NoteSnapshot) erro
 	if snap.State == "" {
 		return s.Bases.Delete(noteID)
 	}
-	return s.Bases.Save(Base{NoteID: noteID, Text: snap.Text, VectorClock: snap.VectorClock,
-		State: snap.State, SavedAt: s.now().UTC()})
+	return s.Bases.Save(Base{NoteID: noteID, CRDTEpoch: snap.CRDTEpoch, Text: snap.Text,
+		VectorClock: snap.VectorClock, State: snap.State, SavedAt: s.now().UTC()})
 }
 
 // Forget drops everything known about a note (deleted remotely).
@@ -149,7 +153,7 @@ func (s *Syncer) fetch(ctx context.Context, id string) (*account.NoteSnapshot, e
 }
 
 func baseFromSnap(id string, snap *account.NoteSnapshot) *Base {
-	return &Base{NoteID: id, Text: snap.Text, VectorClock: snap.VectorClock, State: snap.State}
+	return &Base{NoteID: id, CRDTEpoch: snap.CRDTEpoch, Text: snap.Text, VectorClock: snap.VectorClock, State: snap.State}
 }
 
 // Push sends the note at absPath to the server without overwriting
@@ -167,6 +171,15 @@ func baseFromSnap(id string, snap *account.NoteSnapshot) *Base {
 //  4. 409 base_required / base_mismatch / base_too_old → re-pull. If the remote text is
 //     unchanged since the base, retry once on the fresh snapshot (same
 //     text, so the same diff). If both changed → conflict.
+//
+// Lineage (§12.5): before a stored base reaches the server, its
+// crdt_epoch is compared with the server's (GET /state-vector — no text,
+// no full state; /snapshot on older servers). A different epoch means
+// the note was deleted and recreated (or re-seeded): the base belongs to
+// a history that ended, so it is never merged. The local text is saved
+// as "<title> (conflito offline)", the note takes the server text and
+// the base is refreshed. A base saved before epochs existed passes when
+// the server's state vector covers it, and then adopts the epoch.
 //
 // Conflict ("keep both"): the local file is first copied to
 // `<note>.conflict-<timestamp>.md` (without the note id, so it stays a
@@ -191,6 +204,20 @@ func (s *Syncer) Push(ctx context.Context, absPath string) (PushResult, error) {
 			s.Cache.Notes[id] = NoteEntry{Path: res.Path, Hash: BodyHash(base.Text)}
 		}
 		return res, nil
+	}
+	if hasBase {
+		srv, err := s.probeLineage(ctx, id)
+		if err != nil {
+			return res, err
+		}
+		verdict, adopt := JudgeLineage(base, srv)
+		if verdict == LineageChanged {
+			return s.lineageConflict(ctx, local, srv.Snap, res)
+		}
+		if adopt {
+			base.CRDTEpoch = srv.Epoch
+			_ = s.Bases.Save(*base)
+		}
 	}
 	if !hasBase {
 		snap, err := s.fetch(ctx, id)
@@ -261,6 +288,9 @@ func (s *Syncer) pushOn(ctx context.Context, local *domain.Note, base *Base, res
 		if sameBody(snap.Text, local.Content) {
 			return res, s.Record(local.ID, local.Path, snap)
 		}
+		if snap.CRDTEpoch != "" && base.CRDTEpoch != "" && snap.CRDTEpoch != base.CRDTEpoch {
+			return s.lineageConflict(ctx, local, snap, res)
+		}
 		if !retried && sameBody(snap.Text, base.Text) && snap.State != "" {
 			return s.pushOn(ctx, local, baseFromSnap(local.ID, snap), res, true)
 		}
@@ -280,7 +310,7 @@ func (s *Syncer) pushOn(ctx context.Context, local *domain.Note, base *Base, res
 	// drop the base — the next push re-derives it via the cache hash.
 	snap, ferr := s.fetch(ctx, local.ID)
 	if ferr != nil {
-		snap = &account.NoteSnapshot{ID: merged.ID, Text: merged.Text, VectorClock: merged.VectorClock}
+		snap = &account.NoteSnapshot{ID: merged.ID, CRDTEpoch: merged.CRDTEpoch, Text: merged.Text, VectorClock: merged.VectorClock}
 	}
 	return s.writeBack(local, snap, res)
 }
@@ -309,8 +339,32 @@ func (s *Syncer) writeBack(pushed *domain.Note, snap *account.NoteSnapshot, res 
 	return res, s.Record(pushed.ID, pushed.Path, snap)
 }
 
+// lineageConflict handles a base from an ended CRDT history: the local
+// text becomes a "(conflito offline)" copy, the note takes the text of
+// the new history and its snapshot becomes the base. snap may be nil
+// (fetched here). When the texts already agree nothing is copied.
+func (s *Syncer) lineageConflict(ctx context.Context, local *domain.Note, snap *account.NoteSnapshot, res PushResult) (PushResult, error) {
+	if snap == nil {
+		var err error
+		if snap, err = s.fetch(ctx, local.ID); err != nil {
+			return res, err
+		}
+	}
+	if sameBody(snap.Text, local.Content) {
+		return res, s.Record(local.ID, local.Path, snap)
+	}
+	res.Lineage = true
+	return s.conflictAs(local, snap, res, " (conflito offline)")
+}
+
 func (s *Syncer) conflict(local *domain.Note, snap *account.NoteSnapshot, res PushResult) (PushResult, error) {
-	cp, err := s.writeConflictCopy(local)
+	return s.conflictAs(local, snap, res, "")
+}
+
+// conflictAs is conflict with an explicit title suffix for the copy
+// ("" = the default "(conflito <date>)").
+func (s *Syncer) conflictAs(local *domain.Note, snap *account.NoteSnapshot, res PushResult, suffix string) (PushResult, error) {
+	cp, err := s.writeConflictCopyAs(local, suffix)
 	if err != nil {
 		return res, err
 	}
@@ -330,6 +384,13 @@ const ConflictSuffix = ".conflict-"
 // body and tags, a "(conflito …)" title and no `id`, so neither sync nor
 // the mirror ever mistakes it for the server note.
 func (s *Syncer) writeConflictCopy(n *domain.Note) (string, error) {
+	return s.writeConflictCopyAs(n, "")
+}
+
+// writeConflictCopyAs is writeConflictCopy with a title suffix; "" uses
+// " (conflito <date>)". A note without a title gets one from its file
+// name so the suffix is always visible.
+func (s *Syncer) writeConflictCopyAs(n *domain.Note, suffix string) (string, error) {
 	ts := s.now().Format("20060102-150405")
 	dir, stem := filepath.Dir(n.Path), strings.TrimSuffix(filepath.Base(n.Path), filepath.Ext(n.Path))
 	dest := filepath.Join(dir, stem+ConflictSuffix+ts+".md")
@@ -342,9 +403,13 @@ func (s *Syncer) writeConflictCopy(n *domain.Note) (string, error) {
 	cp := *n
 	cp.Path = dest
 	cp.ID = ""
-	if cp.Title != "" {
-		cp.Title += " (conflito " + s.now().Format("2006-01-02 15:04") + ")"
+	if suffix == "" {
+		suffix = " (conflito " + s.now().Format("2006-01-02 15:04") + ")"
 	}
+	if cp.Title == "" {
+		cp.Title = stem
+	}
+	cp.Title += suffix
 	if len(cp.RawFrontmatter) > 0 {
 		cp.RawFrontmatter = stripIDLine(cp.RawFrontmatter)
 	}

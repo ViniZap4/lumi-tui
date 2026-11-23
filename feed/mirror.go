@@ -46,6 +46,9 @@ type MirrorStats struct {
 type Conflict struct {
 	Path string // the note (now holding the server text)
 	Copy string // the saved local version
+	// Lineage: the note was recreated on the server (new crdt_epoch);
+	// the copy is titled "(conflito offline)".
+	Lineage bool
 }
 
 // Changed reports whether any file was touched.
@@ -142,7 +145,7 @@ func (m *Mirror) ApplyNote(ctx context.Context, rn account.RemoteNote, st *Mirro
 			st.Merged++
 		case PushConflict:
 			st.Written++
-			st.Conflicts = append(st.Conflicts, Conflict{Path: res.Path, Copy: res.ConflictPath})
+			st.Conflicts = append(st.Conflicts, Conflict{Path: res.Path, Copy: res.ConflictPath, Lineage: res.Lineage})
 		}
 		return nil
 	}

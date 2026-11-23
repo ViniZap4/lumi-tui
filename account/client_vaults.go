@@ -66,6 +66,9 @@ type RemoteNote struct {
 	Title     string `json:"title"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
+	// CRDTEpoch is the note's CRDT lineage (protocol §12.2); empty on
+	// servers before migration 0008.
+	CRDTEpoch string `json:"crdt_epoch,omitempty"`
 }
 
 // noteListResponse is the envelope returned by `GET /api/vaults/:vault/notes`.

@@ -273,6 +273,12 @@ func runVaultSyncCmd(args []string, stdout, stderr io.Writer) int {
 		case feed.PushConflict:
 			stats.Conflicts++
 			fmt.Fprintf(stdout, "  conflict                      %s\n", rel)
+			if res.Lineage {
+				fmt.Fprintf(stderr,
+					"Conflict: %s was deleted and recreated on the server (new CRDT history). Your offline edit was not merged; it was saved as %s.\n",
+					rel, res.ConflictPath)
+				continue
+			}
 			fmt.Fprintf(stderr,
 				"Conflict: %s changed here and on the server. The server version is now in %s; your version was saved as %s.\n",
 				rel, rel, res.ConflictPath)

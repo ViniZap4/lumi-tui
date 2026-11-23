@@ -464,7 +464,7 @@ func flushPending(ctx context.Context, s *Syncer) flushResult {
 			fr.pushed++
 		case PushConflict:
 			fr.pushed++
-			fr.conflicts = append(fr.conflicts, Conflict{Path: res.Path, Copy: res.ConflictPath})
+			fr.conflicts = append(fr.conflicts, Conflict{Path: res.Path, Copy: res.ConflictPath, Lineage: res.Lineage})
 		}
 	}
 	return fr
@@ -513,7 +513,11 @@ func (m *Manager) runCatchUp(a account.Account, b books.Book) {
 		bi.pending = pending
 		for _, c := range append(res.Stats.Conflicts, fr.conflicts...) {
 			bi.conflicts = append(bi.conflicts, c)
-			m.notices = append(m.notices, fmt.Sprintf("Conflito em %s: a versão do servidor ficou na nota; a sua foi salva em %s", c.Path, c.Copy))
+			if c.Lineage {
+				m.notices = append(m.notices, fmt.Sprintf("%s foi recriada no servidor: sua edição offline foi salva em %s (conflito offline)", c.Path, c.Copy))
+			} else {
+				m.notices = append(m.notices, fmt.Sprintf("Conflito em %s: a versão do servidor ficou na nota; a sua foi salva em %s", c.Path, c.Copy))
+			}
 		}
 		if len(bi.conflicts) > 5 {
 			bi.conflicts = bi.conflicts[len(bi.conflicts)-5:]
