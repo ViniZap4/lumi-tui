@@ -244,7 +244,7 @@ func (m Model) navPreviewCol(width, height int) string {
 		s.WriteString("\n")
 		s.WriteString(lipgloss.NewStyle().
 			Foreground(mutedColor).
-			Render(fmt.Sprintf(" %s", item.Note.UpdatedAt.Format("Jan 2, 2006"))))
+			Render(fmt.Sprintf(" %s", noteDate(item.Note.UpdatedAt))))
 		s.WriteString("\n")
 		s.WriteString(lipgloss.NewStyle().
 			Foreground(theme.Current.Separator).

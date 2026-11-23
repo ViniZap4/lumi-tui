@@ -50,7 +50,7 @@ func (m Model) renderFullNote() string {
 
 	dateStyled := lipgloss.NewStyle().
 		Foreground(mutedColor).
-		Render(m.fullNote.UpdatedAt.Format("Jan 2, 2006") + " ")
+		Render(noteDate(m.fullNote.UpdatedAt) + " ")
 	tw := lipgloss.Width(titleStyled) + lipgloss.Width(tagStr)
 	dw := lipgloss.Width(dateStyled)
 	gap := m.width - tw - dw

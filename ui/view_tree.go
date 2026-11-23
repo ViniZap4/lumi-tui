@@ -518,7 +518,7 @@ func (m Model) renderNotePreview(item Item, width, height, innerWidth int) strin
 	// Updated-at line.
 	meta := lipgloss.NewStyle().
 		Foreground(mutedColor).
-		Render(" " + item.Note.UpdatedAt.Format("Jan 2, 2006"))
+		Render(" " + noteDate(item.Note.UpdatedAt))
 	s.WriteString(meta)
 	s.WriteByte('\n')
 
