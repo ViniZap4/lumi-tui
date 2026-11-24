@@ -43,11 +43,22 @@ Built with [Go](https://golang.org) and [Bubbletea](https://github.com/charmbrac
   `~/.config/lumi/vimrc` subset) and your `$VISUAL`/`$EDITOR`.
   Settings → "Editor padrão" picks what `i`/`e` open; `E` and `:edit!`
   open the other. Both save through the epoch-checked 3-way push.
-- Views: prose reader (`Tab` links, `⏎/gf` follow, `K` link card), source,
-  source+preview, kanban board for `kanban-plugin` notes, JSON Canvas
-  outline; `zv` cycles
-- Panes: `⌃w v/s/q/o/=/hjkl/w/p/f/F`, `:vs`/`:sp`, layout kept per book;
-  `q` closes a pane (the last one goes to the home)
+- Views: prose reader with a read-only vim cursor (`h j k l w b e 0 $ gg G`,
+  counts, `/ n N`, `v V ⌃v` selection, `y`/`yy` to the clipboard; `⏎/gf`
+  follow the link under the cursor, `⌃w f/F` in a split, `gx` browser,
+  `Tab` next link, `K` link card, `⏎`/`x` toggle a task; click a link to
+  follow it), source, source+preview (`⌃l` reads the preview with the same
+  cursor), kanban boards and JSON Canvas with Reading | Edit | Source
+  (`i` edits a board, `Esc` back to Reading); `zv` cycles
+- Panes: `⌃w v/s/q/o/=/hjkl/w/p/f/F/z`, `:vs`/`:sp`/`:zoom`, layout kept
+  per book; `q` closes a pane (the last one goes to the home); `⌃w z` or
+  the header's ⤢ zooms a pane tmux-style
+- Floating explorer: footer legend (clickable, item count), kind glyphs
+  (▤ note, ▥ board, ◈ canvas; `LUMI_ASCII=1` for ASCII), canvas outline
+  and mini-board previews, inline `open · ⇥ right · ⇩ below` actions and a
+  right-click menu
+- Rendering: frames go out as DEC 2026 synchronized updates with compact
+  SGR, so scrolling never flickers
 - Accounts and servers inside the TUI (`ga`): sign in/out, remove,
   web address per server
 - `lumi open [<book>[/<note>]] [--web]` opens the Lumi app (macOS,
