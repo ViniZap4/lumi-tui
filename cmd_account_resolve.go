@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/vinizap/lumi/tui-client/account"
 )
@@ -58,5 +60,42 @@ func lookupAccount(server, username string, stderr io.Writer) (*account.Account,
 			who, server)
 		return nil, 1
 	}
+	if acc.Token == "" {
+		linked, code := linkFromApp(*acc, file.LinkOptedOut(acc.Server, acc.Username), stderr)
+		if code != 0 {
+			return nil, code
+		}
+		acc = linked
+	}
 	return acc, 0
+}
+
+// linkWait bounds how long a command waits for Lumi.app's approval.
+var linkWait = 2 * time.Minute
+
+// linkFromApp gets the TUI a session for an account it knows (shared
+// registry) but holds no token for, by asking a running Lumi.app for a
+// device link (SPEC-LIVROS §8.4). Without the app it explains how to
+// sign in instead.
+func linkFromApp(acc account.Account, optedOut bool, stderr io.Writer) (*account.Account, int) {
+	ch, err := account.NewLinkChannel()
+	if err != nil || optedOut || !ch.PeerAlive(account.LinkClientApple) {
+		fmt.Fprintf(stderr, "Error: this terminal is not signed in as %s on %s. Run 'lumi login %s'",
+			acc.Username, acc.Server, acc.Server)
+		if err == nil && !optedOut {
+			fmt.Fprint(stderr, ", or open Lumi.app and run 'lumi accounts link'")
+		}
+		fmt.Fprintln(stderr, ".")
+		return nil, 1
+	}
+	fmt.Fprintf(stderr, "Asking Lumi.app to sign this terminal in as %s on %s — approve it in the app (Ctrl-C cancels)…\n",
+		acc.Username, acc.Server)
+	ctx, cancel := context.WithTimeout(context.Background(), linkWait)
+	defer cancel()
+	got, err := account.LinkAndSave(ctx, ch, acc.Server, acc.Username, 0, nil)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: link from Lumi.app failed: %v\n", err)
+		return nil, 1
+	}
+	return got, 0
 }

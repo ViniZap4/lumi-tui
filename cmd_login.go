@@ -21,8 +21,13 @@ Usage:
   lumi login <server-url>
 
   Prompts for username and password, calls POST /api/auth/login on the
-  given server, and stores the returned session token in
-  ~/.config/lumi/accounts.yaml at 0600 permissions.
+  given server, adds the account to ~/.config/lumi/accounts.yaml (shared
+  with Lumi.app on this Mac, no secrets) and stores the TUI's session
+  token in ~/.config/lumi/tokens.yaml (0600).
+
+  If Lumi.app is running and has no session for this account yet, it gets
+  one of its own through a device link (SPEC-LIVROS §8) — the password is
+  typed once.
 
   Re-running 'lumi login' as the same user on the same server replaces
   that entry's token. Signing in as a different user on the same server
@@ -102,6 +107,7 @@ func runLoginCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		ExpiresAt:   resp.ExpiresAt,
 		AddedAt:     time.Now().UTC(),
 	})
+	file.SetLinkOptOut(client.BaseURL().String(), resp.User.Username, false)
 	if err := file.Save(); err != nil {
 		fmt.Fprintf(stderr, "Error writing accounts file: %v\n", err)
 		return 1
@@ -112,8 +118,43 @@ func runLoginCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		displayName = resp.User.Username
 	}
 	path, _ := account.Path()
-	fmt.Fprintf(stdout, "Signed in as %s (%s).\nToken saved to %s.\n", resp.User.Username, displayName, path)
+	fmt.Fprintf(stdout, "Signed in as %s (%s).\nAccount saved to %s (token in tokens.yaml).\n", resp.User.Username, displayName, path)
+	if n := serveAppLinks(ctx, linkWaitAfterLogin); n > 0 {
+		fmt.Fprintln(stdout, "Lumi.app is signed in too.")
+	}
 	return 0
+}
+
+// linkWaitAfterLogin is how long `lumi login` waits for a running
+// Lumi.app to notice the new account and ask for a device link.
+var linkWaitAfterLogin = 3 * time.Second
+
+// serveAppLinks answers Lumi.app's pending device-link requests with the
+// TUI's sessions (SPEC-LIVROS §8.4). When the app is running it keeps
+// looking for up to `wait` for a request to show up. Returns how many
+// requests got a code.
+func serveAppLinks(ctx context.Context, wait time.Duration) int {
+	ch, err := account.NewLinkChannel()
+	if err != nil {
+		return 0
+	}
+	deadline := time.Now().Add(wait)
+	served := 0
+	for {
+		if len(ch.Pending()) > 0 {
+			if f, err := account.Load(); err == nil {
+				served += account.ServeLinkRequests(ctx, ch, f, nil)
+			}
+		}
+		if served > 0 || time.Now().After(deadline) || !ch.PeerAlive(account.LinkClientApple) {
+			return served
+		}
+		select {
+		case <-ctx.Done():
+			return served
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
 }
 
 // readPassword reads a password from /dev/tty without echo when stdin is

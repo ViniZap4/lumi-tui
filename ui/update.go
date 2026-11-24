@@ -181,6 +181,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case signOutDoneMsg:
 		return m, nil
 
+	case AccountsChangedMsg:
+		return m.onAccountsChanged(msg)
+
 	case tea.KeyMsg:
 		if m.acct != nil {
 			return m.updateAccounts(msg)

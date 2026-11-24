@@ -16,17 +16,19 @@ import (
 	"github.com/vinizap/lumi/tui-client/theme"
 )
 
-// Accounts and servers inside the TUI (SPEC-PARTE2 §9, SPEC-LIVROS §5):
-// list accounts, sign in (server URL + username + masked password), sign
-// out, remove an account or a whole server, set a server's web address.
-// Tokens are written to accounts.yaml (0600) and never rendered; the
-// password lives only in the form until it is sent.
+// Accounts and servers inside the TUI (SPEC-PARTE2 §9, SPEC-LIVROS §5, §8):
+// list accounts, sign in (server URL + username + masked password), link
+// from Lumi.app, sign out of this TUI or of the whole Mac, remove an
+// account or a whole server, set a server's web address. The account list
+// is shared with Lumi.app (accounts.yaml v3); this TUI's tokens live in
+// tokens.yaml (0600) and are never rendered; the password lives only in
+// the form until it is sent.
 
 type accountsScreen struct {
 	list    []account.Account
 	cursor  int
 	form    *loginForm
-	confirm string // "signout", "remove", "server"
+	confirm string // "signout", "signoutmac", "remove", "server"
 	origin  *string
 	busy    bool
 	err     string
@@ -49,6 +51,30 @@ type signOutDoneMsg struct{ server, user string }
 
 // loginTimeout bounds a sign-in request.
 var loginTimeout = 30 * time.Second
+
+// linkTimeout bounds waiting for Lumi.app to approve a device link.
+var linkTimeout = 2 * time.Minute
+
+// AccountsChangedMsg reports that another process (Lumi.app, another
+// TUI) changed the shared account registry or this TUI's sessions. Sent
+// by the account sync loop in package main.
+type AccountsChangedMsg struct{ Toast string }
+
+func (m Model) onAccountsChanged(msg AccountsChangedMsg) (tea.Model, tea.Cmd) {
+	if m.acct != nil && !m.acct.busy && m.acct.form == nil {
+		m.reloadAccounts()
+	}
+	if msg.Toast != "" {
+		return m, m.showToast(msg.Toast, ToastInfo, 4*time.Second)
+	}
+	return m, nil
+}
+
+// appAlive reports whether Lumi.app is running on this machine.
+func appAlive() bool {
+	ch, err := account.NewLinkChannel()
+	return err == nil && ch.PeerAlive(account.LinkClientApple)
+}
 
 func (m *Model) openAccounts() {
 	m.acct = &accountsScreen{}
@@ -106,6 +132,13 @@ func (m Model) updateAccounts(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				s.info, s.err = "endereço web salvo", ""
 				m.cfg = cfg
+				// Shared with Lumi.app through the registry (web_origin).
+				if f, err := account.Load(); err == nil && !f.ReadOnly {
+					for _, x := range f.ForServer(a.Server) {
+						x.WebOrigin = strings.TrimRight(v, "/")
+					}
+					_ = f.Save()
+				}
 			}
 		default:
 			if v, ok := editLine(*s.origin, msg); ok {
@@ -148,6 +181,20 @@ func (m Model) updateAccounts(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "s":
 		if a, ok := s.current(); ok && a.Token != "" {
 			s.confirm = "signout"
+		}
+	case "S":
+		if _, ok := s.current(); ok {
+			s.confirm = "signoutmac"
+		}
+	case "L":
+		if a, ok := s.current(); ok && a.Token == "" {
+			if !appAlive() {
+				s.err = "o Lumi.app não está aberto — abra o app ou entre com senha (⏎)"
+				return m, nil
+			}
+			s.busy = true
+			s.info = "aprove no Lumi.app… (Ctrl-C sai)"
+			return m, linkFromAppCmd(a)
 		}
 	case "d", "x":
 		if _, ok := s.current(); ok {
@@ -259,6 +306,7 @@ func (m Model) onLoginDone(msg loginDoneMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	f.Upsert(msg.acct)
+	f.SetLinkOptOut(msg.acct.Server, msg.acct.Username, false)
 	if err := f.Save(); err != nil {
 		s.err = "accounts.yaml: " + err.Error()
 		return m, nil
@@ -277,8 +325,19 @@ func (m Model) onLoginDone(msg loginDoneMsg) (tea.Model, tea.Cmd) {
 }
 
 func loginError(err error) string {
-	if errors.Is(err, account.ErrUnauthorized) {
+	switch {
+	case errors.Is(err, account.ErrUnauthorized):
 		return "usuário ou senha inválidos"
+	case errors.Is(err, account.ErrLinkDenied):
+		return "o Lumi.app não permitiu (o terminal não vai pedir de novo sozinho; L tenta outra vez)"
+	case errors.Is(err, account.ErrLinkNoSession):
+		return "o Lumi.app também não está conectado nesta conta"
+	case errors.Is(err, account.ErrLinkNoPeer):
+		return "o Lumi.app não está aberto"
+	case errors.Is(err, account.ErrInvalidLink):
+		return "o link expirou — tente de novo"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "o Lumi.app não respondeu a tempo"
 	}
 	var apiErr *account.APIError
 	if errors.As(err, &apiErr) {
@@ -296,7 +355,14 @@ func loginError(err error) string {
 	return err.Error()
 }
 
-// accountAction signs out, removes an account or a whole server.
+// accountAction signs out (this TUI, or the whole Mac), removes an
+// account or a whole server (SPEC-LIVROS §8.5).
+//
+//   - signout: ends this TUI's session only; Lumi.app stays signed in and
+//     the TUI won't ask it for a link on its own.
+//   - signoutmac: logout scope=device (ends every linked session) and
+//     signed_out_at in the shared registry, so Lumi.app drops its token.
+//   - remove / server: the same as signoutmac, then the row goes.
 func (m Model) accountAction(kind string, a account.Account) (tea.Model, tea.Cmd) {
 	s := m.acct
 	f, err := account.Load()
@@ -311,21 +377,29 @@ func (m Model) accountAction(kind string, a account.Account) (tea.Model, tea.Cmd
 			targets = append(targets, *x)
 		}
 	default:
-		targets = []account.Account{a}
+		if x := f.Find(a.Server, a.Username); x != nil {
+			targets = []account.Account{*x}
+		}
 	}
+	now := time.Now().UTC()
 	var cmds []tea.Cmd
 	for _, t := range targets {
 		if t.Token != "" {
-			cmds = append(cmds, logoutCmd(t))
+			cmds = append(cmds, logoutCmd(t, kind != "signout"))
 		}
-		if kind == "signout" {
+		switch kind {
+		case "signout":
 			if x := f.Find(t.Server, t.Username); x != nil {
 				x.Token = ""
 			}
-		} else {
+			f.SetLinkOptOut(t.Server, t.Username, true)
+		case "signoutmac":
+			f.SignOutMac(t.Server, t.Username, now)
+		default:
+			f.SignOutMac(t.Server, t.Username, now)
 			f.Remove(t.Server, t.Username)
 		}
-		if m.bookMgr != nil {
+		if m.bookMgr != nil && kind != "signout" && kind != "signoutmac" {
 			m.bookMgr.RemoveAccount(t.Server, t.Username)
 		}
 	}
@@ -336,7 +410,9 @@ func (m Model) accountAction(kind string, a account.Account) (tea.Model, tea.Cmd
 	m.reloadAccounts()
 	switch kind {
 	case "signout":
-		s.info = "saiu de " + books.Host(a.Server) + " (" + a.Username + ")"
+		s.info = "saiu do terminal em " + books.Host(a.Server) + " (" + a.Username + ") — o Lumi.app continua conectado"
+	case "signoutmac":
+		s.info = "saiu de " + books.Host(a.Server) + " (" + a.Username + ") neste Mac"
 	case "server":
 		s.info = "servidor " + books.Host(a.Server) + " removido"
 	default:
@@ -345,8 +421,9 @@ func (m Model) accountAction(kind string, a account.Account) (tea.Model, tea.Cmd
 	return m, tea.Batch(cmds...)
 }
 
-// logoutCmd revokes the session server-side (best effort).
-func logoutCmd(a account.Account) tea.Cmd {
+// logoutCmd revokes the session server-side (best effort). device=true
+// also ends every session linked to it (Lumi.app's, when linked).
+func logoutCmd(a account.Account, device bool) tea.Cmd {
 	return func() tea.Msg {
 		c, err := account.NewClient(a.Server)
 		if err != nil {
@@ -355,8 +432,30 @@ func logoutCmd(a account.Account) tea.Cmd {
 		c.SetToken(a.Token)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_ = c.Logout(ctx)
+		if device {
+			_ = c.LogoutDevice(ctx)
+		} else {
+			_ = c.Logout(ctx)
+		}
 		return signOutDoneMsg{server: a.Server, user: a.Username}
+	}
+}
+
+// linkFromAppCmd asks Lumi.app for a session (device link, §8.4) and
+// stores it; the result arrives as a loginDoneMsg.
+func linkFromAppCmd(a account.Account) tea.Cmd {
+	return func() tea.Msg {
+		ch, err := account.NewLinkChannel()
+		if err != nil {
+			return loginDoneMsg{err: err}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), linkTimeout)
+		defer cancel()
+		got, err := account.LinkAndSave(ctx, ch, a.Server, a.Username, 0, nil)
+		if err != nil {
+			return loginDoneMsg{err: err}
+		}
+		return loginDoneMsg{acct: *got}
 	}
 }
 
@@ -395,6 +494,7 @@ func (m Model) renderAccounts() string {
 		b.WriteString(text.Render("Nenhuma conta ainda.") + "\n\n")
 	}
 	now := time.Now()
+	appUp := appAlive()
 	for i, a := range s.list {
 		cur := "  "
 		if i == s.cursor {
@@ -402,6 +502,8 @@ func (m Model) renderAccounts() string {
 		}
 		state := lipgloss.NewStyle().Foreground(t.Accent).Render("● conectada")
 		switch {
+		case a.Token == "" && appUp:
+			state = lipgloss.NewStyle().Foreground(t.Warning).Render("● precisa entrar · L liga pelo Lumi.app")
 		case a.Token == "":
 			state = lipgloss.NewStyle().Foreground(t.Warning).Render("● precisa entrar")
 		case !a.ExpiresAt.IsZero() && now.After(a.ExpiresAt):
@@ -432,9 +534,11 @@ func (m Model) renderAccounts() string {
 	case s.origin != nil:
 		b.WriteString(text.Render("endereço web › ") + *s.origin + "▏\n" + dim.Render("⏎ salvar · Esc cancelar · vazio = automático") + "\n")
 	case s.confirm == "signout":
-		b.WriteString(lipgloss.NewStyle().Foreground(t.Warning).Render("Sair desta conta? y/n") + "\n")
+		b.WriteString(lipgloss.NewStyle().Foreground(t.Warning).Render("Sair desta conta só no terminal? (o Lumi.app continua conectado) y/n") + "\n")
+	case s.confirm == "signoutmac":
+		b.WriteString(lipgloss.NewStyle().Foreground(t.Warning).Render("Sair desta conta neste Mac (terminal e Lumi.app)? y/n") + "\n")
 	case s.confirm == "remove":
-		b.WriteString(lipgloss.NewStyle().Foreground(t.Warning).Render("Remover esta conta deste aparelho? y/n") + "\n")
+		b.WriteString(lipgloss.NewStyle().Foreground(t.Warning).Render("Remover esta conta deste aparelho (terminal e Lumi.app)? y/n") + "\n")
 	case s.confirm == "server":
 		b.WriteString(lipgloss.NewStyle().Foreground(t.Warning).Render("Remover o servidor e todas as suas contas? y/n") + "\n")
 	}
@@ -444,7 +548,7 @@ func (m Model) renderAccounts() string {
 	if s.info != "" {
 		b.WriteString(lipgloss.NewStyle().Foreground(t.Info).Render(s.info) + "\n")
 	}
-	b.WriteString(dim.Render("a entrar/novo servidor · ⏎ entrar de novo · s sair · d remover conta · D remover servidor · w endereço web · b livros · Esc"))
+	b.WriteString(dim.Render("a entrar/novo servidor · ⏎ entrar de novo · L ligar pelo Lumi.app · s sair do terminal · S sair neste Mac · d remover conta · D remover servidor · w endereço web · b livros · Esc"))
 	return m.modalBox("contas e servidores", b.String(), 84)
 }
 

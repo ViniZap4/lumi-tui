@@ -28,6 +28,7 @@ Usage:
   lumi <file.md>             open a single .md file (parent dir becomes the workspace)
   lumi login <server-url>    sign in to a lumi-server v2 instance (Phase 5)
   lumi accounts [--verify]   list signed-in accounts (several per server)
+  lumi accounts link|signout|remove   share sign-in with Lumi.app; sign out here or on the whole Mac
   lumi books [list|refresh|link|unlink|rename|use]   manage books (livros)
   lumi vaults                alias of 'lumi books list'
   lumi vault link <path>     register a directory as a vault (Phase 5)
@@ -119,6 +120,9 @@ func main() {
 	defer cancel()
 	mgr := feed.NewManager(store, accounts)
 	mgr.Start(ctx)
+	// Shared sign-in with Lumi.app (SPEC-LIVROS §8).
+	acctSync := startAccountSync(ctx, mgr, accounts)
+	defer acctSync.stop()
 
 	for {
 		activeID := ""
@@ -141,7 +145,9 @@ func main() {
 		model := ui.NewModelWithInitialNote(rootDir, initialNote).WithBooks(mgr, activeID)
 
 		p := tea.NewProgram(model, ui.ProgramOptions(nil, nil)...)
+		acctSync.setSend(p.Send)
 		final, err := p.Run()
+		acctSync.setSend(nil)
 		// the built-in editor may have changed the cursor shape (DECSCUSR)
 		fmt.Fprint(os.Stdout, vim.ResetCursorShape)
 		if fm, ok := final.(ui.Model); ok {
