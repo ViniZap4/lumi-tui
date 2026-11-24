@@ -668,3 +668,35 @@ func (m *Manager) BookByPath(absPath string) (books.Book, bool) {
 	}
 	return books.Book{}, false
 }
+
+// UpdateRegistry applies fn to the in-memory registry and, when fn reports
+// a change, saves books.yaml. Books whose folder changed lose their cached
+// per-book state (pending set, cursor) so it is recomputed from the new
+// folder. Used by clone-in-place and "link existing folder" so the file
+// and the manager never disagree.
+func (m *Manager) UpdateRegistry(fn func(reg *books.Registry) bool) error {
+	m.mu.Lock()
+	before := map[string]string{}
+	for _, b := range m.store.Registry.Books {
+		before[b.ID] = b.Path
+	}
+	changed := fn(m.store.Registry)
+	var err error
+	if changed {
+		if m.store.Registry.ReadOnly {
+			err = books.ErrReadOnly
+		} else {
+			err = m.store.Save()
+		}
+		for _, b := range m.store.Registry.Books {
+			if p, ok := before[b.ID]; !ok || p != b.Path {
+				delete(m.bstate, b.ID)
+			}
+		}
+	}
+	m.mu.Unlock()
+	if changed {
+		m.ping()
+	}
+	return err
+}

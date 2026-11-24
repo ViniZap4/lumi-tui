@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,9 @@ import (
 	"time"
 
 	"github.com/vinizap/lumi/tui-client/account"
+	"github.com/vinizap/lumi/tui-client/bookclone"
+	"github.com/vinizap/lumi/tui-client/books"
+	"github.com/vinizap/lumi/tui-client/feed"
 )
 
 func TestParseCloneArgs(t *testing.T) {
@@ -319,5 +323,88 @@ func TestRunVaultCloneRejectsUnsafeNotePath(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "unsafe note path") {
 		t.Errorf("stderr missing traversal rejection:\n%s", stderr.String())
+	}
+}
+
+// TestCloneCLIAndTUIWriteSameRegistries: `lumi vault clone` and the TUI's
+// clone in place (bookclone.Run through the feed manager's
+// UpdateRegistry, as ui/clone.go does) leave byte-identical books.yaml
+// and vaults.yaml (timestamps aside) for the same book.
+func TestCloneCLIAndTUIWriteSameRegistries(t *testing.T) {
+	const vid = "0b9d2a52-7c1e-4b38-9a43-1f2e3d4c5b6a"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/vaults":
+			_, _ = w.Write([]byte(`{"vaults":[{"id":"` + vid + `","slug":"test","name":"test","created_by":"u","created_at":""}]}`))
+		case "/api/vaults/" + vid + "/notes":
+			_, _ = w.Write([]byte(`{"notes":[{"id":"n1","vault_id":"v","path":"a.md","title":"a"},{"id":"n2","vault_id":"v","path":"d/b.md","title":"b"}],"limit":200,"offset":0}`))
+		case "/api/vaults/" + vid + "/notes/n1/content", "/api/vaults/" + vid + "/notes/n2/content":
+			_, _ = w.Write([]byte(`{"id":"n","path":"x","body":"# x\n"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	setup := func() (string, *books.Store) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
+		f := &account.File{}
+		f.Upsert(account.Account{Server: srv.URL, Username: "ana", Token: "tok", ExpiresAt: time.Now().Add(time.Hour)})
+		if err := f.Save(); err != nil {
+			t.Fatal(err)
+		}
+		st, err := books.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		st.Registry.Add(books.Book{ID: vid, Name: "test", Kind: books.KindBound, ServerURL: srv.URL, Account: "ana", VaultID: vid,
+			AddedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)})
+		if err := st.Save(); err != nil {
+			t.Fatal(err)
+		}
+		return home, st
+	}
+	read := func(home string) (string, string) {
+		b, _ := os.ReadFile(filepath.Join(home, ".config", "lumi", "books.yaml"))
+		v, _ := os.ReadFile(filepath.Join(home, ".config", "lumi", "vaults.yaml"))
+		var lines []string
+		for _, l := range strings.Split(string(v), "\n") {
+			if !strings.Contains(l, "added_at") {
+				lines = append(lines, l)
+			}
+		}
+		return string(b), strings.Join(lines, "\n")
+	}
+
+	// CLI
+	home1, _ := setup()
+	var out, errb bytes.Buffer
+	if code := runVaultCloneCmd([]string{srv.URL + "/test", filepath.Join(home1, "lumi", "test")}, &out, &errb); code != 0 {
+		t.Fatalf("cli: %d %s", code, errb.String())
+	}
+	cliBooks, cliVaults := read(home1)
+
+	// TUI path
+	home2, st := setup()
+	mgr := feed.NewManager(st, nil)
+	client, _ := account.NewClient(srv.URL)
+	client.SetToken("tok")
+	if _, err := bookclone.Run(context.Background(), bookclone.Options{Client: client, Server: srv.URL, Account: "ana",
+		VaultID: vid, Path: filepath.Join(home2, "lumi", "test"), UpdateBooks: mgr.UpdateRegistry}); err != nil {
+		t.Fatal(err)
+	}
+	tuiBooks, tuiVaults := read(home2)
+
+	if cliBooks != tuiBooks {
+		t.Errorf("books.yaml differs\n--- cli\n%s\n--- tui\n%s", cliBooks, tuiBooks)
+	}
+	if cliVaults != tuiVaults {
+		t.Errorf("vaults.yaml differs\n--- cli\n%s\n--- tui\n%s", cliVaults, tuiVaults)
+	}
+	if !strings.Contains(tuiBooks, `path: "~/lumi/test"`) {
+		t.Fatalf("books.yaml:\n%s", tuiBooks)
 	}
 }

@@ -5,14 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/vinizap/lumi/tui-client/account"
+	"github.com/vinizap/lumi/tui-client/bookclone"
 	"github.com/vinizap/lumi/tui-client/books"
-	"github.com/vinizap/lumi/tui-client/filesystem"
+	"github.com/vinizap/lumi/tui-client/feed"
 )
 
 // cloneOpts captures parsed flags + positional args for `lumi vault clone`.
@@ -205,25 +205,6 @@ func runVaultCloneCmd(args []string, stdout, stderr io.Writer) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	// Resolve slug → vault.
-	vaults, err := client.ListVaults(ctx)
-	if err != nil {
-		fmt.Fprintf(stderr, "Error: list vaults: %v\n", err)
-		return 1
-	}
-	var vault *account.RemoteVault
-	for i, v := range vaults {
-		if v.Slug == opts.Slug {
-			vault = &vaults[i]
-			break
-		}
-	}
-	if vault == nil {
-		fmt.Fprintf(stderr, "Error: vault slug %q not found at %s (you have %d vault(s) visible).\n",
-			opts.Slug, opts.Server, len(vaults))
-		return 1
-	}
-
 	// Decide on-disk location.
 	targetPath := opts.Path
 	if targetPath == "" {
@@ -234,134 +215,60 @@ func runVaultCloneCmd(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "Error: resolve %q: %v\n", targetPath, err)
 		return 1
 	}
-	if err := os.MkdirAll(absTarget, 0o755); err != nil {
-		fmt.Fprintf(stderr, "Error: create %q: %v\n", absTarget, err)
-		return 1
-	}
 
-	// Download every note.
-	notes, err := client.ListAllNotes(ctx, vault.ID)
-	if err != nil {
-		fmt.Fprintf(stderr, "Error: list notes: %v\n", err)
-		return 1
-	}
-	fmt.Fprintf(stdout, "Cloning %d note(s) from %s/%s into %s\n",
-		len(notes), opts.Server, opts.Slug, absTarget)
-
-	skipped, written := 0, 0
-	wroteIDs := map[string]string{} // note id -> dest written this run
-	for _, n := range notes {
-		before := written
-		if err := downloadNote(ctx, client, vault.ID, n, absTarget, opts.Force, &skipped, &written, stdout); err != nil {
+	// The shared clone path (bookclone.Run) — the TUI's clone-in-place
+	// runs exactly the same steps.
+	res, err := bookclone.Run(ctx, bookclone.Options{
+		Client: client, Server: opts.Server, Account: acc.Username,
+		Slug: opts.Slug, Path: absTarget, Name: opts.Name, Force: opts.Force,
+		OnStart: func(_ account.RemoteVault, total int) {
+			fmt.Fprintf(stdout, "Cloning %d note(s) from %s/%s into %s\n",
+				total, opts.Server, opts.Slug, absTarget)
+		},
+		OnNote: func(_, _ int, rel string, wrote bool) {
+			if wrote {
+				fmt.Fprintf(stdout, "  %s\n", rel)
+			}
+		},
+		UpdateBooks: func(fn func(reg *books.Registry) bool) error {
+			updateBooks(stderr, fn)
+			return nil
+		},
+		NewSyncer: func(api feed.NoteAPI, server, vaultID, root string) (*feed.Syncer, func()) {
+			s, save := newBookSyncer(api, server, vaultID, root)
+			return s, func() { save(stderr) }
+		},
+	})
+	switch bookclone.StageOf(err) {
+	case "":
+		if err != nil {
 			fmt.Fprintf(stderr, "Error: %v\n", err)
 			return 1
 		}
-		if written > before {
-			wroteIDs[n.ID] = filepath.Join(absTarget, filepath.Clean(n.Path))
-		}
-	}
-	fmt.Fprintf(stdout, "Wrote %d file(s); skipped %d existing.\n", written, skipped)
-
-	// Register the new vault locally.
-	displayName := opts.Name
-	if displayName == "" {
-		displayName = vault.Name
-	}
-	entry := account.VaultEntry{
-		ID:      vault.ID,
-		Name:    displayName,
-		Path:    absTarget,
-		RawPath: account.EncodeHomeRelative(absTarget),
-		Server:  opts.Server,
-		Account: acc.Username,
-		AddedAt: time.Now().UTC().Truncate(time.Second),
-	}
-	if _, err := account.UpsertVault(entry); err != nil {
+	case bookclone.StageNotFound:
+		fmt.Fprintf(stderr, "Error: vault slug %q not found at %s (you have %d vault(s) visible).\n",
+			opts.Slug, opts.Server, res.Visible)
+		return 1
+	case bookclone.StageMkdir:
+		fmt.Fprintf(stderr, "Error: create %q: %v\n", absTarget, errors.Unwrap(err))
+		return 1
+	case bookclone.StageVaultsYAML:
+		fmt.Fprintf(stdout, "Wrote %d file(s); skipped %d existing.\n", res.Written, res.Skipped)
 		// Files downloaded fine; registry write failure is reported but
 		// doesn't roll back the disk state — the user can rerun
 		// `lumi vault link` to fix it.
-		fmt.Fprintf(stderr, "Warning: vault registry write failed: %v\n", err)
+		fmt.Fprintf(stderr, "Warning: vault registry write failed: %v\n", errors.Unwrap(err))
 		fmt.Fprintf(stderr, "Re-register with: lumi vault link %s --server %s --account %s\n",
 			absTarget, opts.Server, acc.Username)
 		return 2
+	default:
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
 	}
-	fmt.Fprintf(stdout, "Registered %q at %s.\n", displayName, absTarget)
-	updateBooks(stderr, func(reg *books.Registry) bool {
-		return registerClonedBook(reg, opts.Server, acc.Username, vault.ID, displayName, absTarget)
-	})
-	recordCloneBases(ctx, client, opts.Server, vault.ID, absTarget, wroteIDs, stderr)
+	fmt.Fprintf(stdout, "Wrote %d file(s); skipped %d existing.\n", res.Written, res.Skipped)
+	fmt.Fprintf(stdout, "Registered %q at %s.\n", res.Name, absTarget)
+	if res.BaseMisses > 0 {
+		fmt.Fprintf(stderr, "Warning: no sync base recorded for %d note(s); their first push will compare with the server copy.\n", res.BaseMisses)
+	}
 	return 0
-}
-
-// recordCloneBases stores the base (snapshot text + state) of every note
-// the clone wrote, so the first edit can be pushed 3-way
-// (CRDT-CLIENT-PROTOCOL §7.1 step 1). Best effort: a note whose snapshot
-// does not match what was written gets no base, and its first push
-// re-derives one (or keeps both versions).
-func recordCloneBases(ctx context.Context, client *account.Client, server, vaultID, root string, wrote map[string]string, stderr io.Writer) {
-	if len(wrote) == 0 {
-		return
-	}
-	syncer, save := newBookSyncer(client, server, vaultID, root)
-	defer save(stderr)
-	missed := 0
-	for id, dest := range wrote {
-		local, _ := filesystem.ReadNote(dest)
-		snap, err := client.GetNoteSnapshot(ctx, vaultID, id)
-		if local == nil || err != nil || strings.TrimSpace(snap.Text) != strings.TrimSpace(local.Content) {
-			missed++
-			continue
-		}
-		if err := syncer.Record(id, dest, snap); err != nil {
-			missed++
-		}
-	}
-	if missed > 0 {
-		fmt.Fprintf(stderr, "Warning: no sync base recorded for %d note(s); their first push will compare with the server copy.\n", missed)
-	}
-}
-
-// downloadNote reads one note's content via the API and writes it to
-// disk, preserving `note.Path` as the relative target. Existing files
-// are skipped unless `force` is set. Parents are created on demand.
-func downloadNote(
-	ctx context.Context,
-	client *account.Client,
-	vaultID string,
-	note account.RemoteNote,
-	root string,
-	force bool,
-	skipped, written *int,
-	stdout io.Writer,
-) error {
-	if note.Path == "" {
-		return fmt.Errorf("note %q has empty path", note.ID)
-	}
-	rel := filepath.Clean(note.Path)
-	if strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
-		// Defensive — the server shouldn't emit traversal paths, but
-		// don't trust the wire.
-		return fmt.Errorf("rejecting unsafe note path %q", note.Path)
-	}
-	dest := filepath.Join(root, rel)
-	if _, err := os.Stat(dest); err == nil && !force {
-		*skipped++
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", filepath.Dir(dest), err)
-	}
-	content, err := client.GetNoteContent(ctx, vaultID, note.ID)
-	if err != nil {
-		return fmt.Errorf("fetch %s: %w", note.ID, err)
-	}
-	body := []byte(content.Body)
-	if err := os.WriteFile(dest, body, 0o644); err != nil {
-		return fmt.Errorf("write %s: %w", dest, err)
-	}
-	*written++
-	if stdout != nil {
-		fmt.Fprintf(stdout, "  %s\n", rel)
-	}
-	return nil
 }

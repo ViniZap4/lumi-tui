@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/vinizap/lumi/tui-client/account"
+	"github.com/vinizap/lumi/tui-client/bookclone"
+	"github.com/vinizap/lumi/tui-client/books"
 	"github.com/vinizap/lumi/tui-client/domain"
 	"github.com/vinizap/lumi/tui-client/feed"
 	"github.com/vinizap/lumi/tui-client/filesystem"
@@ -352,23 +354,13 @@ func runVaultSyncCmd(args []string, stdout, stderr io.Writer) int {
 // vault id (the default book id of a clone) when none is. The returned
 // func saves the cache.
 func newBookSyncer(api feed.NoteAPI, server, vaultID, root string) (*feed.Syncer, func(io.Writer)) {
-	bookID, bookServer := strings.ToLower(vaultID), strings.TrimRight(server, "/")
-	if n, err := account.NormalizeServerURL(bookServer); err == nil {
-		bookServer = n
-	}
+	var reg *books.Registry
 	if st, err := openBooks(); err == nil {
-		if b := st.Registry.ByVaultID(vaultID); b != nil {
-			bookID, bookServer = b.ID, b.ServerURL
-		}
+		reg = st.Registry
 	}
-	dir, err := feed.CacheDir()
-	if err != nil {
-		dir = ""
-	}
-	cache := feed.LoadCache(dir, bookID, strings.ToLower(vaultID), bookServer)
-	s := &feed.Syncer{API: api, VaultID: vaultID, Root: root, Cache: cache, Bases: feed.BasesFor(dir, bookID)}
+	s, save := bookclone.SyncerFor(api, server, vaultID, root, reg)
 	return s, func(stderr io.Writer) {
-		if err := cache.Save(dir, bookID); err != nil {
+		if err := save(); err != nil {
 			fmt.Fprintf(stderr, "Warning: sync cache not saved: %v\n", err)
 		}
 	}

@@ -530,29 +530,3 @@ func updateBooks(stderr io.Writer, fn func(reg *books.Registry) bool) {
 		fmt.Fprintf(stderr, "Warning: books.yaml not updated: %v\n", err)
 	}
 }
-
-// registerClonedBook records a freshly cloned vault folder as a bound
-// book (id = vault_id, per SPEC-LIVROS §2.3).
-func registerClonedBook(reg *books.Registry, server, username, vaultID, name, abs string) bool {
-	server = strings.TrimRight(server, "/")
-	if n, err := account.NormalizeServerURL(server); err == nil {
-		server = n
-	}
-	if b := reg.ByVaultID(vaultID); b != nil {
-		if b.Path == "" || !books.SameDir(b.AbsPath(), abs) {
-			b.Path = books.EncodeHome(abs)
-		}
-		return true
-	}
-	if b := reg.ByPath(abs); b != nil {
-		b.Kind, b.ServerURL, b.Account, b.VaultID = books.KindBound, server, username, strings.ToLower(vaultID)
-		return true
-	}
-	id := strings.ToLower(vaultID)
-	if reg.Get(id) != nil {
-		id = mustNewID()
-	}
-	_, err := reg.Add(books.Book{ID: id, Name: name, Kind: books.KindBound, ServerURL: server,
-		Account: username, VaultID: strings.ToLower(vaultID), Path: books.EncodeHome(abs)})
-	return err == nil
-}
