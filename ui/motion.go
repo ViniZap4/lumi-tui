@@ -98,6 +98,9 @@ type motion struct {
 	breathe int
 	// syncing is set by the model from the book state.
 	syncing bool
+	// spinning: work in progress on a card (clone, sign-in, server
+	// check) — the spinner breathes like the sync dot.
+	spinning bool
 	// ticking: a frame tick is in flight; at most one at a time.
 	ticking bool
 	// frames counts scheduled ticks (tests assert idle = no ticks).
@@ -185,7 +188,7 @@ func (mo *motion) busy() bool {
 	if mo == nil || mo.reduced {
 		return false
 	}
-	return mo.springing() || mo.syncing
+	return mo.springing() || mo.syncing || mo.spinning
 }
 
 // settle snaps everything to its target.
@@ -235,7 +238,7 @@ func (mo *motion) frame() tea.Cmd {
 	if !mo.a[animZoom].active {
 		mo.zoomPane = nil
 	}
-	if mo.syncing {
+	if mo.syncing || mo.spinning {
 		if sp {
 			mo.breathe++ // ~60 fps: advance the spinner every 6th frame
 		} else {

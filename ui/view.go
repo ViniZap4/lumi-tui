@@ -41,6 +41,9 @@ func (m Model) View() string {
 		if m.showSearch {
 			body = m.renderWithSearchModal(body)
 		}
+		if m.clone != nil {
+			body = m.cloneCard().over(m, fitHeight(body, h))
+		}
 	}
 	body = fitHeight(body, h)
 	if m.hover != nil && m.viewMode == ViewFullNote {

@@ -279,7 +279,7 @@ func keyFor(k string) tea.KeyMsg {
 		"enter": tea.KeyEnter, "esc": tea.KeyEsc, "tab": tea.KeyTab, "shift+tab": tea.KeyShiftTab, " ": tea.KeySpace,
 		"up": tea.KeyUp, "down": tea.KeyDown, "left": tea.KeyLeft, "right": tea.KeyRight,
 		"ctrl+v": tea.KeyCtrlV, "ctrl+s": tea.KeyCtrlS, "ctrl+d": tea.KeyCtrlD, "ctrl+u": tea.KeyCtrlU,
-		"ctrl+h": tea.KeyCtrlH, "ctrl+l": tea.KeyCtrlL, "ctrl+j": tea.KeyCtrlJ, "ctrl+k": tea.KeyCtrlK,
+		"ctrl+t": tea.KeyCtrlT, "ctrl+h": tea.KeyCtrlH, "ctrl+l": tea.KeyCtrlL, "ctrl+j": tea.KeyCtrlJ, "ctrl+k": tea.KeyCtrlK,
 	}
 	if t, ok := special[k]; ok {
 		return tea.KeyMsg{Type: t}

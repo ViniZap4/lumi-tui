@@ -42,6 +42,8 @@ const (
 	CtxFloat     LegendContext = "float"  // floating explorer (list column)
 	CtxHover     LegendContext = "hover"
 	CtxAccounts  LegendContext = "accounts"
+	CtxLogin     LegendContext = "login" // sign-in card
+	CtxClone     LegendContext = "clone" // clone / link-folder card
 	CtxSplitPre  LegendContext = "splitpreview"
 	// CtxReadVisual: a visual selection in the reader / preview.
 	CtxReadVisual LegendContext = "readvisual"
@@ -140,7 +142,13 @@ func legendFor(ctx LegendContext, pending string) []LegendItem {
 	case CtxHover:
 		return []LegendItem{{"⏎", "open"}, {"⌃w f", "open in split"}, {"j k", "scroll"}, {"Esc", "close"}}
 	case CtxAccounts:
-		return []LegendItem{{"a", "sign in"}, {"⏎", "sign in again"}, {"s", "sign out"}, {"d D", "remove account/server"}, {"w", "web address"}, {"Esc", "back"}}
+		return []LegendItem{{"j k", "move"}, {"⏎", "sign in / open"}, {"a", "add server"}, {"n", "new account"},
+			{"s", "sign out"}, {"d D", "remove account/server"}, {"c L", "clone / link book"}, {"r", "check server"},
+			{"w", "web address"}, {"b", "books"}, {"Esc", "back"}}
+	case CtxLogin:
+		return []LegendItem{{"⏎", "sign in"}, {"Tab ⇧Tab", "field"}, {"⌃t", "show/hide password"}, {"Esc", "cancel"}}
+	case CtxClone:
+		return []LegendItem{{"⏎", "confirm"}, {"Esc", "cancel"}, {"⌃u", "clear"}}
 	case CtxSplitPre:
 		return []LegendItem{
 			{"h j k l", "cursor"}, {"w b e", "word"}, {"v V", "select"}, {"y yy", "copy"}, {"⏎ gf", "follow link"},
@@ -179,7 +187,8 @@ func legendFor(ctx LegendContext, pending string) []LegendItem {
 	case CtxBooks:
 		return []LegendItem{
 			{"j k", "move"}, {"h l", "accounts / books"}, {"⏎", "open"}, {"1–9", "book n"},
-			{"J K", "reorder"}, {"s", "details"}, {"a", "accounts"}, {"Esc q", "close"},
+			{"c", "clone here"}, {"L", "link folder"}, {"J K", "reorder"}, {"s", "details"}, {"a", "accounts"},
+			{"Esc q", "close"},
 		}
 	case CtxSettings:
 		return []LegendItem{{"j k", "move"}, {"h l", "change"}, {"⏎", "edit"}, {"Esc ,", "back"}}

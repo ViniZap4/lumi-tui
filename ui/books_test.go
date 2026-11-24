@@ -62,11 +62,16 @@ func TestGbOpensBooksLevelAndEnterSwitches(t *testing.T) {
 	}
 }
 
-func TestG3OnPathlessBookShowsHintAndStays(t *testing.T) {
+func TestG3OnPathlessBookAsksSignInInsteadOfCLIHint(t *testing.T) {
 	m, _, _ := newBooksModel(t)
 	m, _ = pressKeys(m, "g", "3")
-	if m.SwitchTarget() != "" || !strings.Contains(m.toastMsg, "clone") {
+	if m.SwitchTarget() != "" || strings.Contains(m.toastMsg, "<slug>") {
 		t.Fatalf("target %q toast %q", m.SwitchTarget(), m.toastMsg)
+	}
+	// no account for u@s yet: the sign-in card comes first, prefilled
+	if m.acct == nil || m.acct.form == nil || m.acct.form.server != "https://s" || m.acct.form.user != "u" ||
+		m.acct.then == nil || m.acct.then.bookID != "c" {
+		t.Fatalf("sign-in for the book's account expected, got %+v", m.acct)
 	}
 }
 

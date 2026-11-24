@@ -45,6 +45,9 @@ type Config struct {
 	// WebOrigins maps a server URL to its web client origin, for
 	// `lumi open --web` (default: lumi-api.<host> → lumi.<host>).
 	WebOrigins map[string]string
+	// BooksDir is where clone-in-place proposes new book folders
+	// (`<books_dir>/<slug>`); `~` is expanded at use.
+	BooksDir string
 }
 
 // VimrcPath is where the built-in editor reads the user's vimrc.
@@ -79,6 +82,7 @@ func Load() *Config {
 		AutosaveMs:      1000,
 		ClipboardSync:   true,
 		WebOrigins:      map[string]string{},
+		BooksDir:        "~/lumi",
 	}
 
 	// UserHomeDir falls back to $HOME on Unix and the registry on
@@ -188,6 +192,10 @@ func Load() *Config {
 			cfg.ClipboardSync = value != "false"
 		case "reduce_motion":
 			cfg.ReduceMotion = value == "true"
+		case "books_dir":
+			if value != "" {
+				cfg.BooksDir = value
+			}
 		case "web_origins":
 			for _, pair := range strings.Fields(value) {
 				if k, v, ok := strings.Cut(pair, "="); ok && strings.HasPrefix(v, "http") {
@@ -258,10 +266,14 @@ autosave_ms: %d
 clipboard_sync: %s
 reduce_motion: %s
 web_origins: %s
+
+# Books: where clone-in-place proposes new book folders
+books_dir: %s
 `, editorCmd, c.ThemeMode, c.DarkTheme, c.LightTheme, showLn, c.CursorStyle, c.PreviewLines, c.SearchType,
 		b(c.ShowPreview), b(c.ShowLegend), b(c.PaneNav), b(c.Mouse), b(c.ShowHidden),
 		orDefault(c.DefaultEditor, "internal"), orDefault(c.OpenIn, "reader"), strings.Join(c.EscapeSequences, ","),
-		c.EscapeTimeoutMs, b(c.Vimrc), b(c.Autosave), c.AutosaveMs, b(c.ClipboardSync), b(c.ReduceMotion), c.webOrigins())
+		c.EscapeTimeoutMs, b(c.Vimrc), b(c.Autosave), c.AutosaveMs, b(c.ClipboardSync), b(c.ReduceMotion), c.webOrigins(),
+		orDefault(c.BooksDir, "~/lumi"))
 
 	return os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(content), 0644)
 }

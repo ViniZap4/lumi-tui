@@ -1,12 +1,16 @@
 package ui
 
 import (
+	"errors"
 	"flag"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
@@ -40,6 +44,8 @@ func TestMain(m *testing.M) {
 	systemClipboard = &vim.MemClipboard{}
 	termOut = io.Discard
 	openURLFn = func(u string) { openedURLs = append(openedURLs, u) }
+	// Server checks (GET /api/info) only ever reach httptest servers.
+	infoClient = &http.Client{Timeout: 2 * time.Second, Transport: loopbackOnly{}}
 	theme.Resolve("dark", "tokyo-night", "catppuccin-latte")
 	ApplyTheme()
 	code := m.Run()
@@ -73,4 +79,14 @@ func golden(t *testing.T, name, got string) {
 	if string(want) != got {
 		t.Errorf("golden %s mismatch\n--- want\n%s\n--- got\n%s", name, want, got)
 	}
+}
+
+// loopbackOnly refuses any request that is not to a loopback address.
+type loopbackOnly struct{}
+
+func (loopbackOnly) RoundTrip(r *http.Request) (*http.Response, error) {
+	if ip := net.ParseIP(r.URL.Hostname()); ip == nil || !ip.IsLoopback() {
+		return nil, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("tests never leave loopback")}
+	}
+	return http.DefaultTransport.RoundTrip(r)
 }

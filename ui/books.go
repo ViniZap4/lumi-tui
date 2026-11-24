@@ -91,8 +91,8 @@ func (m Model) switchToBook(idx int) (tea.Model, tea.Cmd) {
 	}
 	b := list[idx]
 	if b.Path == "" {
-		cmd := m.showToast(fmt.Sprintf("%q não tem pasta neste aparelho — clone com: lumi vault clone %s/<slug>", b.Name, b.ServerURL), ToastInfo, 6*time.Second)
-		return m, cmd
+		// no folder on this device: clone it here (or link a folder)
+		return m.beginBookFlow(b, cloneKindClone)
 	}
 	if b.ID == m.activeBookID {
 		return m, nil
@@ -258,4 +258,47 @@ func humanSince(d time.Duration) string {
 	default:
 		return fmt.Sprintf("%d dias", int(d.Hours()/24))
 	}
+}
+
+// bkAction is one clickable action of the books-level preview.
+type bkAction struct{ label, key string }
+
+// bkPreviewActions are the selected book's actions: a book without a
+// folder here offers clone in place and link-a-folder.
+func bkPreviewActions(b books.Book) []bkAction {
+	if b.IsBound() && b.Path == "" {
+		return []bkAction{{"⏎ c clonar aqui", "c"}, {"L ligar pasta", "L"}, {"a contas", "a"}}
+	}
+	return []bkAction{{"⏎ abrir", "enter"}, {"J/K ordem", ""}, {"s detalhes", "s"}}
+}
+
+// bkPreviewActionLine renders the actions (" ⏎ abrir · J/K ordem · …").
+func bkPreviewActionLine(b books.Book, width int) string {
+	var parts []string
+	for _, a := range bkPreviewActions(b) {
+		parts = append(parts, a.label)
+	}
+	line := " " + strings.Join(parts, " · ")
+	st := lipgloss.NewStyle().Foreground(theme.Current.TextDim)
+	if b.IsBound() && b.Path == "" {
+		st = lipgloss.NewStyle().Foreground(theme.Current.Accent)
+	}
+	return st.Render(truncate(line, max(4, width-1)))
+}
+
+// bkPreviewActionAt is the key of the action at x (relative to the
+// preview column), "" for none.
+func bkPreviewActionAt(b books.Book, x int) string {
+	pos := 1
+	for i, a := range bkPreviewActions(b) {
+		if i > 0 {
+			pos += 3
+		}
+		w := lipgloss.Width(a.label)
+		if x >= pos && x < pos+w {
+			return a.key
+		}
+		pos += w
+	}
+	return ""
 }

@@ -420,6 +420,14 @@ func (m Model) updateBooksLevel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if bk.cursor < len(idx) && m.bookMgr.Registry()[idx[bk.cursor]].ID == m.activeBookID {
 			m.showBookDetails = true
 		}
+	case "c", "L":
+		if bk.pane == 1 && bk.cursor < len(idx) {
+			kind := cloneKindClone
+			if key == "L" {
+				kind = cloneKindLink
+			}
+			return m.beginBookFlow(m.bookMgr.Registry()[idx[bk.cursor]], kind)
+		}
 	case "a":
 		m.openAccounts()
 	default:
@@ -503,29 +511,7 @@ func (m Model) renderBooksLevel(w, h int) string {
 	}
 	var pcol []string
 	if right > 0 && bk.cursor < len(idx) {
-		b := reg[idx[bk.cursor]]
-		v, _ := m.bookMgr.View(b.ID)
-		st := v.Status.State
-		row := func(k, val string) string {
-			return dim.Render(" "+padRight(k, 12)) + text.Render(truncate(val, max(4, right-14)))
-		}
-		pcol = append(pcol, lipgloss.NewStyle().Bold(true).Foreground(primaryColor).Render(" "+truncate(b.Name, right-2)), "")
-		pcol = append(pcol, row("estado", st.Glyph()+" "+st.Label()))
-		if b.IsBound() {
-			pcol = append(pcol, row("servidor", b.ServerURL), row("conta", b.Account))
-		}
-		if b.Path == "" {
-			pcol = append(pcol, row("pasta", "(sem pasta)"))
-		} else {
-			pcol = append(pcol, row("pasta", b.Path))
-		}
-		if n := len(v.Pending); n > 0 {
-			pcol = append(pcol, row("pendentes", pendingLabel(n)))
-		}
-		if !v.LastSynced.IsZero() {
-			pcol = append(pcol, row("sincronizou", "há "+humanSince(time.Since(v.LastSynced))))
-		}
-		pcol = append(pcol, "", dim.Render(truncate(" ⏎ abrir · J/K ordem · s detalhes", max(4, right-1))))
+		pcol = m.bkPreviewLines(reg[idx[bk.cursor]], right)
 	}
 	sep := lipgloss.NewStyle().Foreground(t.Separator).Render(" │ ")
 	cols := []string{strings.Join(fitBlock(acol, left, colH), "\n"), sep, strings.Join(fitBlock(bcol, center, colH), "\n")}
@@ -534,6 +520,83 @@ func (m Model) renderBooksLevel(w, h int) string {
 	}
 	out = append(out, lipgloss.JoinHorizontal(lipgloss.Top, cols...))
 	return strings.Join(out, "\n")
+}
+
+// bkPreviewLines is the preview column of book b; its last line holds
+// the clickable actions.
+func (m Model) bkPreviewLines(b books.Book, right int) []string {
+	t := theme.Current
+	dim := lipgloss.NewStyle().Foreground(t.TextDim)
+	text := lipgloss.NewStyle().Foreground(t.Text)
+	v, _ := m.bookMgr.View(b.ID)
+	st := v.Status.State
+	row := func(k, val string) string {
+		return dim.Render(" "+padRight(k, 12)) + text.Render(truncate(val, max(4, right-14)))
+	}
+	pcol := []string{lipgloss.NewStyle().Bold(true).Foreground(primaryColor).Render(" " + truncate(b.Name, right-2)), ""}
+	pcol = append(pcol, row("estado", st.Glyph()+" "+st.Label()))
+	if b.IsBound() {
+		pcol = append(pcol, row("servidor", b.ServerURL), row("conta", b.Account))
+	}
+	if b.Path == "" {
+		pcol = append(pcol, row("pasta", "(sem pasta neste aparelho)"))
+	} else {
+		pcol = append(pcol, row("pasta", b.Path))
+	}
+	if n := len(v.Pending); n > 0 {
+		pcol = append(pcol, row("pendentes", pendingLabel(n)))
+	}
+	if !v.LastSynced.IsZero() {
+		pcol = append(pcol, row("sincronizou", "há "+humanSince(time.Since(v.LastSynced))))
+	}
+	if b.IsBound() && b.Path == "" && st == books.StateSignIn {
+		pcol = append(pcol, "", dim.Render(truncate(" ⏎ entra na conta e depois clona", max(4, right-1))))
+	}
+	pcol = append(pcol, "", bkPreviewActionLine(b, right))
+	return pcol
+}
+
+// booksLevelMouse: click an account or a book to select it (double-click
+// opens / clones), click a preview action to run it. x, y are content
+// coordinates inside the overlay.
+func (m Model) booksLevelMouse(x, y int, iw int) (tea.Model, tea.Cmd) {
+	bk := m.bk
+	if bk == nil || m.bookMgr == nil || y < 2 {
+		return m, nil
+	}
+	left, center, right, _ := treeColumnWidths(iw, false)
+	if left == 0 {
+		left = min(24, iw/3)
+		center = iw - left - 3
+		right = 0
+	}
+	row := y - 2
+	idx := m.bkBooks()
+	reg := m.bookMgr.Registry()
+	dbl := m.isDoubleClick(x, y)
+	switch {
+	case x < left:
+		if row < len(bk.accounts) {
+			bk.pane, bk.acct, bk.cursor = 0, row, 0
+		}
+	case x >= left+3 && x < left+3+center:
+		if row < len(idx) {
+			bk.pane, bk.cursor = 1, row
+			if dbl {
+				return m.updateBooksLevel(keyFor("enter"))
+			}
+		}
+	case right > 0 && x >= left+3+center+3 && bk.cursor < len(idx):
+		b := reg[idx[bk.cursor]]
+		lines := m.bkPreviewLines(b, right)
+		if row == len(lines)-1 {
+			if k := bkPreviewActionAt(b, x-(left+3+center+3)); k != "" {
+				bk.pane = 1
+				return m.updateBooksLevel(keyFor(k))
+			}
+		}
+	}
+	return m, nil
 }
 
 // revealRows is how many list rows the stagger has revealed so far

@@ -56,6 +56,7 @@ func (m Model) buildConfigItems(cfg *config.Config) []ConfigItem {
 
 		{Label: "Servers", Kind: ConfigHeader},
 		{Label: "Accounts and servers (ga)", Kind: ConfigAction, Key: "accounts"},
+		{Label: "Pasta dos livros (clonar)", Kind: ConfigInput, Key: "books_dir", Value: cfg.BooksDir},
 
 		{Label: "Explorer", Kind: ConfigHeader},
 		{Label: "Preview column", Kind: ConfigCycle, Key: "show_preview", Value: boolStr(!m.previewHidden), Options: []string{"off", "on"}},
@@ -236,6 +237,10 @@ func (m *Model) applyConfigChange(key, value string) tea.Cmd {
 	case "show_hidden":
 		cfg.ShowHidden = value == "on"
 		m.showHidden = cfg.ShowHidden
+	case "books_dir":
+		if v := strings.TrimSpace(value); v != "" && !strings.Contains(v, "..") {
+			cfg.BooksDir = strings.TrimRight(v, "/")
+		}
 	case "default_editor":
 		cfg.DefaultEditor = value
 	case "open_in":

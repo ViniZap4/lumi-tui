@@ -18,7 +18,12 @@ Built with [Go](https://golang.org) and [Bubbletea](https://github.com/charmbrac
   rename/move, `d` delete, `y/p` copy, `m` move, `.` hidden, `zp` preview,
   `R` refresh, `e/i` edit, `E` the other editor, `⌃h/⌃l` column focus
 - Books in the same overlay: `gb` (or `h` at the book root) shows accounts →
-  books with their sync state; `[ ]` and `g1–9` switch
+  books with their sync state; `[ ]` and `g1–9` switch. A server book with
+  no folder on this device is cloned in place: `c` / `⏎` (or the preview's
+  clickable action) proposes `<books_dir>/<slug>` (Settings, default
+  `~/lumi`), shows live progress (`Esc` cancels and cleans up), registers it
+  exactly like `lumi vault clone` and opens it; `L` binds it to a folder you
+  already have. A signed-out account gets the sign-in card first
 - Opening a book shows its last opened note (per book, kept in
   `~/.config/lumi/state/last-notes.json`, never in the book folder);
   otherwise a calm home (book, sync state, recent notes) with the explorer
@@ -59,8 +64,13 @@ Built with [Go](https://golang.org) and [Bubbletea](https://github.com/charmbrac
   right-click menu
 - Rendering: frames go out as DEC 2026 synchronized updates with compact
   SGR, so scrolling never flickers
-- Accounts and servers inside the TUI (`ga`): sign in/out, remove,
-  web address per server
+- Accounts and servers inside the TUI (`ga`): servers → accounts → books,
+  each server checked live (`GET /api/info`: online/offline, latency, name
+  and version), accounts with session expiry and book count; sign in/out,
+  remove, add server, web address, clone/link a book — keys and clickable
+  buttons. The sign-in card validates the URL as you type, masks the
+  password (`⌃t` shows it) and reports wrong password / rate limit /
+  unreachable / TLS inline
 - `lumi open [<book>[/<note>]] [--web]` opens the Lumi app (macOS,
   `lumi://`) or the web client
 - Inline images in the reader (timg/chafa/viu), wiki-links, 12 themes

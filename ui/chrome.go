@@ -54,8 +54,12 @@ func (m Model) legendContext() LegendContext {
 		return CtxHelp
 	case m.showBookDetails:
 		return CtxDetails
+	case m.acct != nil && m.acct.form != nil:
+		return CtxLogin
 	case m.acct != nil:
 		return CtxAccounts
+	case m.clone != nil:
+		return CtxClone
 	case m.filterTyping:
 		return CtxFilter
 	case m.viewMode == ViewConfig:
@@ -204,6 +208,10 @@ func (m Model) modeName() string {
 		return "LINK"
 	case CtxAccounts:
 		return "ACCOUNTS"
+	case CtxLogin:
+		return "SIGN IN"
+	case CtxClone:
+		return "CLONE"
 	case CtxSplitPre:
 		return "PREVIEW"
 	case CtxParent:

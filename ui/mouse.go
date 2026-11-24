@@ -94,7 +94,11 @@ func (m Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			m.helpScroll = max(0, m.helpScroll+wheel*3)
 		}
 		return m, nil
-	case m.showConfirm, m.showInput, m.showNav, m.showSearch, m.acct != nil:
+	case m.acct != nil:
+		return m.accountsMouse(msg, wheel, press)
+	case m.clone != nil:
+		return m.cloneMouse(msg)
+	case m.showConfirm, m.showInput, m.showNav, m.showSearch:
 		return m, nil
 	case m.hover != nil:
 		if press {
@@ -128,6 +132,9 @@ func (m Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if m.bk != nil {
 			if wheel != 0 {
 				return m.updateBooksLevel(keyRunes(map[int]string{1: "j", -1: "k"}[wheel]))
+			}
+			if press {
+				return m.booksLevelMouse(msg.X-r.x-1, msg.Y-r.y-1, r.w-2)
 			}
 			return m, nil
 		}

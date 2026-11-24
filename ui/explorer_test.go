@@ -21,7 +21,7 @@ func keyMsg(k string) tea.KeyMsg {
 		"tab": tea.KeyTab, " ": tea.KeySpace, "shift+tab": tea.KeyShiftTab, "ctrl+w": tea.KeyCtrlW,
 		"ctrl+v": tea.KeyCtrlV, "ctrl+s": tea.KeyCtrlS, "ctrl+r": tea.KeyCtrlR, "ctrl+a": tea.KeyCtrlA,
 		"ctrl+x": tea.KeyCtrlX, "ctrl+f": tea.KeyCtrlF, "ctrl+b": tea.KeyCtrlB, "left": tea.KeyLeft, "right": tea.KeyRight,
-		"delete": tea.KeyDelete, "ctrl+o": tea.KeyCtrlO, "ctrl+e": tea.KeyCtrlE, "ctrl+y": tea.KeyCtrlY,
+		"delete": tea.KeyDelete, "ctrl+o": tea.KeyCtrlO, "ctrl+e": tea.KeyCtrlE, "ctrl+y": tea.KeyCtrlY, "ctrl+t": tea.KeyCtrlT,
 	}
 	if t, ok := special[k]; ok {
 		return tea.KeyMsg{Type: t}

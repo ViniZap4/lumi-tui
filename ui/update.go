@@ -32,6 +32,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return tm, cmd
 	}
+	if s := nm.acct; s != nil && s.needCheck {
+		s.needCheck = false
+		cmd = tea.Batch(cmd, s.checkAll())
+	}
 	nm.afterUpdate()
 	if k := nm.mo.kick(); k != nil {
 		cmd = tea.Batch(cmd, k)
@@ -55,6 +59,7 @@ func (m *Model) afterUpdate() {
 		m.mo.pillMode = mode
 	}
 	m.mo.syncing = m.bookState() == books.StateSyncing
+	m.mo.spinning = m.spinnerWanted()
 }
 
 // bookState is the active book's state (StateLocal without one).
@@ -178,12 +183,30 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case loginDoneMsg:
 		return m.onLoginDone(msg)
 
+	case loginSettledMsg:
+		return m.onLoginSettled(msg)
+
+	case serverCheckMsg:
+		return m.onServerCheck(msg)
+
+	case serverCheckTickMsg:
+		return m.onServerCheckTick(msg)
+
+	case cloneProgressMsg:
+		return m.onCloneProgress(msg)
+
+	case cloneDoneMsg:
+		return m.onCloneDone(msg)
+
 	case signOutDoneMsg:
 		return m, nil
 
 	case tea.KeyMsg:
 		if m.acct != nil {
 			return m.updateAccounts(msg)
+		}
+		if m.clone != nil {
+			return m.updateClone(msg)
 		}
 		if m.hover != nil && m.viewMode == ViewFullNote && !m.showPalette && !m.showHelp {
 			return m.updateHover(msg.String())

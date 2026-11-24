@@ -136,6 +136,8 @@ type Model struct {
 	lastMirrorGen   uint64
 	// books level of the floating explorer (accounts → books).
 	bk *booksLevel
+	// clone is the clone-in-place / link-folder card (nil when closed).
+	clone *cloneFlow
 	// switchTo is set when the user picked another book: the program
 	// quits and main restarts the model on that folder.
 	switchTo string

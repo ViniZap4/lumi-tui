@@ -1,0 +1,30 @@
+
+
+
+
+
+
+              ╭──────────────────────────────────────────────────────────────────────╮
+              │                                                                      │
+              │  entrar num servidor                                                 │
+              │                                                                      │
+              │    servidor  lumi.example.com                                        │
+              │              ● lumi · 2.9.0 · 21 ms                                  │
+              │    usuário   ana                                                     │
+              │  ▸ senha     •••••••▏                                                │
+              │                                                                      │
+              │  ✕ muitas tentativas — tente de novo em 2 min                        │
+              │                                                                      │
+              │  ⏎ entrar   Esc cancelar   ⌃t mostrar senha                          │
+              │  Tab / ⇧Tab campo · a senha nunca é salva                            │
+              │                                                                      │
+              ╰──────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+ ⏎ sign in   Tab ⇧Tab field   ⌃t show/hide password   Esc cancel
+ SIGN IN  ~ · 1/4                                                                             local

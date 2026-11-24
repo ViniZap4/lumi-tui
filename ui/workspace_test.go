@@ -511,15 +511,19 @@ func TestAccountsSignInSignOutNeverShowsSecrets(t *testing.T) {
 		t.Fatal("password must be masked")
 	}
 	m = keys(t, m, "enter")
-	if m.acct.err == "" || !strings.Contains(m.acct.err, "inválidos") {
-		t.Fatalf("bad password: %q", m.acct.err)
+	// the card stays open with the error inline, the password cleared
+	if m.acct.form == nil || !strings.Contains(m.acct.form.err, "inválidos") || m.acct.form.pass != "" || m.acct.form.field != 2 {
+		t.Fatalf("bad password: %+v", m.acct.form)
 	}
-	m = keys(t, m, "a")
-	m = typeText(t, m, srv.URL)
-	m = keys(t, m, "tab")
-	m = typeText(t, m, "ana")
-	m = keys(t, m, "tab")
+	m = keys(t, m, "ctrl+t")
 	m = typeText(t, m, "s3cret-pw")
+	if !strings.Contains(m.View(), "s3cret-pw") {
+		t.Fatal("⌃t shows the password")
+	}
+	m = keys(t, m, "ctrl+t")
+	if strings.Contains(m.View(), "s3cret-pw") {
+		t.Fatal("⌃t hides it again")
+	}
 	m = keys(t, m, "enter")
 	f, err := account.Load()
 	if err != nil || len(f.Accounts) != 1 || f.Accounts[0].Token != "tok-SECRET-123" || f.Accounts[0].Username != "ana" {
