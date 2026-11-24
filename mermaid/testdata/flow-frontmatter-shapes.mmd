@@ -1,0 +1,11 @@
+---
+title: Login
+---
+%% comment
+flowchart TD
+  login([Login]) -- valid --> home[Home]
+  login -- invalid --> err[[Error page]]
+  err --> login
+  home ==> done((Bye))
+  classDef x fill:#f00
+  class home x

@@ -1,0 +1,13 @@
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant S as Server
+    actor U as User
+    U->>C: types
+    C->>+S: POST /notes
+    loop every 5s
+      S-->>C: ack
+    end
+    Note over C,S: CRDT sync
+    S->>S: persist
+    S--xU: bye

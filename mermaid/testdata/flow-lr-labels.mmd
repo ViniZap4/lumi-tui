@@ -1,0 +1,5 @@
+graph LR
+  A[Write note] --> B(Sync) --> C{Conflict?}
+  C -->|no| D[Done]
+  C -->|yes| E[Merge] --> D
+  A -.-> D

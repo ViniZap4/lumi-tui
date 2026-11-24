@@ -1,0 +1,6 @@
+flowchart TD
+    A[Start] --> B{Is it ok?}
+    B -->|Yes| C[Ship it]
+    B -->|No| D(Fix bugs)
+    D --> B
+    C --> E[Done]
