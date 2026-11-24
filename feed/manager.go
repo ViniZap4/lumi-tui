@@ -311,6 +311,12 @@ func (m *Manager) handle(a account.Account, u Update) {
 	defer m.ping()
 	m.mu.Lock()
 	f := m.feeds[acctKey(a.Server, a.Username)]
+	if f == nil {
+		// The account was removed (sign-out / remove) while its feed
+		// goroutine was still delivering; drop the late update.
+		m.mu.Unlock()
+		return
+	}
 	f.state, f.retryIn = u.State, u.RetryIn
 	if u.Err != nil {
 		f.err = u.Err
