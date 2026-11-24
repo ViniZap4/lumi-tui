@@ -49,7 +49,8 @@ func (m Model) onBooksChanged() (tea.Model, tea.Cmd) {
 	if v, ok := m.bookMgr.View(m.activeBookID); ok && v.MirrorGen != m.lastMirrorGen {
 		// The feed pulled server changes into this folder.
 		m.lastMirrorGen = v.MirrorGen
-		cmds = append(cmds, m.loadItems)
+		m.mo.to(animPulse, 1, 0) // the sync dot pulses
+		cmds = append(cmds, m.loadItems, m.loadRecent)
 		if m.showNav {
 			cmds = append(cmds, m.loadNavItems)
 		}
@@ -79,20 +80,6 @@ func pendingLabel(n int) string {
 	return fmt.Sprintf("%d pendentes", n)
 }
 
-// openBooksPicker shows the `gb` picker with the cursor on the active book.
-func (m *Model) openBooksPicker() {
-	if m.bookMgr == nil {
-		return
-	}
-	m.showBooks = true
-	m.bookCursor = 0
-	for i, b := range m.bookMgr.Registry() {
-		if b.ID == m.activeBookID {
-			m.bookCursor = i
-		}
-	}
-}
-
 // switchToBook opens book n (0-based picker index).
 func (m Model) switchToBook(idx int) (tea.Model, tea.Cmd) {
 	if m.bookMgr == nil {
@@ -103,7 +90,6 @@ func (m Model) switchToBook(idx int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	b := list[idx]
-	m.showBooks = false
 	if b.Path == "" {
 		cmd := m.showToast(fmt.Sprintf("%q não tem pasta neste aparelho — clone com: lumi vault clone %s/<slug>", b.Name, b.ServerURL), ToastInfo, 6*time.Second)
 		return m, cmd
@@ -116,53 +102,6 @@ func (m Model) switchToBook(idx int) (tea.Model, tea.Cmd) {
 	}
 	m.switchTo = b.AbsPath()
 	return m, tea.Quit
-}
-
-func (m Model) updateBooksPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	list := m.bookMgr.Registry()
-	key := msg.String()
-	switch key {
-	case "esc", "q", "ctrl+c":
-		m.showBooks = false
-	case "j", "down":
-		if m.bookCursor < len(list)-1 {
-			m.bookCursor++
-		}
-	case "k", "up":
-		if m.bookCursor > 0 {
-			m.bookCursor--
-		}
-	case "J", "K":
-		if m.bookCursor < len(list) {
-			delta := 1
-			if key == "K" {
-				delta = -1
-			}
-			if err := m.bookMgr.Move(list[m.bookCursor].ID, delta); err != nil {
-				return m, m.showToast("Livro: "+err.Error(), ToastError, 4*time.Second)
-			}
-			if n := m.bookCursor + delta; n >= 0 && n < len(list) {
-				m.bookCursor = n
-			}
-		}
-	case "enter", "l":
-		return m.switchToBook(m.bookCursor)
-	case "a":
-		m.showBooks = false
-		m.openAccounts()
-	case "s":
-		if m.bookCursor < len(list) {
-			m.showBooks = false
-			if list[m.bookCursor].ID == m.activeBookID {
-				m.showBookDetails = true
-			}
-		}
-	default:
-		if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
-			return m.switchToBook(int(key[0] - '1'))
-		}
-	}
-	return m, nil
 }
 
 func stateColor(s books.State) lipgloss.Color {
@@ -190,7 +129,7 @@ func (m Model) renderBookSegment() string {
 		return ""
 	}
 	st := v.Status.State
-	seg := lipgloss.NewStyle().Foreground(stateColor(st)).Render(st.Glyph() + " " + st.Label())
+	seg := m.syncGlyph(st) + lipgloss.NewStyle().Foreground(stateColor(st)).Render(" "+st.Label())
 	if n := len(v.Pending); n > 0 {
 		seg += lipgloss.NewStyle().Foreground(theme.Current.Warning).Render(" · " + pendingLabel(n))
 	}
@@ -213,55 +152,6 @@ func (m Model) modalBox(title, body string, width int) string {
 		lipgloss.WithWhitespaceChars(" "),
 		lipgloss.WithWhitespaceForeground(theme.Current.OverlayBg),
 		lipgloss.WithWhitespaceBackground(theme.Current.OverlayBg))
-}
-
-func (m Model) renderBooksPicker() string {
-	list := m.bookMgr.Registry()
-	dim := lipgloss.NewStyle().Foreground(theme.Current.TextDim)
-	text := lipgloss.NewStyle().Foreground(theme.Current.Text)
-	var s strings.Builder
-	if len(list) == 0 {
-		s.WriteString(text.Render("Nenhum livro ainda."))
-		s.WriteString("\n\n")
-		s.WriteString(dim.Render("lumi books link <pasta>  ·  lumi login <servidor> + lumi books refresh"))
-		return m.modalBox("livros", s.String(), 64)
-	}
-	for i, b := range list {
-		v, _ := m.bookMgr.View(b.ID)
-		cursor := "  "
-		if i == m.bookCursor {
-			cursor = "▸ "
-		}
-		num := "  "
-		if i < 9 {
-			num = fmt.Sprintf("%d ", i+1)
-		}
-		where := "local"
-		if b.IsBound() {
-			where = b.Account + "@" + books.Host(b.ServerURL)
-		}
-		if b.Path == "" {
-			where += "  (sem pasta)"
-		}
-		dot := lipgloss.NewStyle().Foreground(stateColor(v.Status.State)).Render(v.Status.State.Glyph())
-		name := text.Render(padRight(truncate(b.Name, 24), 24))
-		if b.ID == m.activeBookID {
-			name = lipgloss.NewStyle().Bold(true).Foreground(theme.Current.Primary).Render(padRight(truncate(b.Name, 24), 24))
-		}
-		label := lipgloss.NewStyle().Foreground(stateColor(v.Status.State)).Render(padRight(v.Status.State.Label(), 14))
-		pend := ""
-		if n := len(v.Pending); n > 0 {
-			pend = lipgloss.NewStyle().Foreground(theme.Current.Warning).Render("  " + pendingLabel(n))
-		}
-		row := cursor + dim.Render(num) + dot + " " + name + "  " + label + dim.Render(truncate(where, 30)) + pend
-		if i == m.bookCursor {
-			row = lipgloss.NewStyle().Background(theme.Current.SelectedBg).Render(row)
-		}
-		s.WriteString(row + "\n")
-	}
-	s.WriteString("\n")
-	s.WriteString(dim.Render("j/k mover · enter/1-9 abrir · J/K reordenar · gs detalhes · a contas · esc fechar"))
-	return m.modalBox("livros", s.String(), 96)
 }
 
 func (m Model) renderBookDetails() string {

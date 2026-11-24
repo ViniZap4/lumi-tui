@@ -7,16 +7,19 @@ import (
 )
 
 func TestLegendWhichKey(t *testing.T) {
-	if got := legendFor(CtxExplorer, "g"); !reflect.DeepEqual(got, legendG) {
+	if got := legendFor(CtxFloat, "g"); !reflect.DeepEqual(got, legendG) {
 		t.Fatalf("g → %+v", got)
 	}
-	if got := legendFor(CtxReader, "z"); !reflect.DeepEqual(got, legendZ) {
+	if got := legendFor(CtxFloat, "z"); !reflect.DeepEqual(got, legendZ) {
 		t.Fatalf("z → %+v", got)
 	}
-	if got := legendFor(CtxExplorer, "12"); got[0].Keys != "12j" || got[1].Keys != "12k" {
+	if got := legendFor(CtxReader, "z"); !reflect.DeepEqual(got, legendNoteZ) {
+		t.Fatalf("reader z → %+v", got)
+	}
+	if got := legendFor(CtxFloat, "12"); got[0].Keys != "12j" || got[1].Keys != "12k" {
 		t.Fatalf("count → %+v", got)
 	}
-	if got := legendFor(CtxExplorer, "3g"); !reflect.DeepEqual(got, legendG) {
+	if got := legendFor(CtxFloat, "3g"); !reflect.DeepEqual(got, legendG) {
 		t.Fatalf("count+g → %+v", got)
 	}
 	// Chords are not offered in text contexts.
@@ -27,9 +30,9 @@ func TestLegendWhichKey(t *testing.T) {
 
 func TestLegendContexts(t *testing.T) {
 	first := map[LegendContext]string{
-		CtxExplorer: "j k", CtxReader: "j k", CtxPreview: "j k", CtxParent: "j k",
+		CtxFloat: "⏎", CtxReader: "j k", CtxPreview: "j k", CtxParent: "j k",
 		CtxPrompt: "⏎", CtxConfirm: "y ⏎", CtxPalette: "↑ ↓ ⌃n ⌃p", CtxBooks: "j k",
-		CtxSettings: "j k", CtxHelp: "j k", CtxVisual: "y", CtxHome: "⏎ l",
+		CtxSettings: "j k", CtxHelp: "j k", CtxVisual: "y", CtxHome: "-",
 	}
 	for ctx, keys := range first {
 		got := legendFor(ctx, "")
@@ -57,7 +60,7 @@ func TestFitLegend(t *testing.T) {
 
 func TestLegendLineIsFullWidth(t *testing.T) {
 	for _, w := range []int{20, 60, 140} {
-		line := renderLegendLine(legendFor(CtxExplorer, ""), w)
+		line := renderLegendLine(legendFor(CtxFloat, ""), w)
 		if got := len([]rune(stripAnsi(line))); got != w {
 			t.Errorf("width %d: rendered %d columns", w, got)
 		}

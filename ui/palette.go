@@ -46,7 +46,7 @@ var paletteCommands = []paletteEntry{
 	{kind: palCommand, label: "View: kanban board", keys: ":board", id: "view-board"},
 	{kind: palCommand, label: "Split vertically", keys: "⌃w v", id: "vsplit"},
 	{kind: palCommand, label: "Split horizontally", keys: "⌃w s", id: "hsplit"},
-	{kind: palCommand, label: "Floating explorer", keys: "-", id: "float"},
+	{kind: palCommand, label: "Explore notes (floating explorer)", keys: "- :explore", id: "float"},
 	{kind: palCommand, label: "Restore the last pane layout", keys: ":layout", id: "layout"},
 	{kind: palCommand, label: "Accounts and servers (sign in / out)", keys: "ga", id: "accounts"},
 	{kind: palCommand, label: "Filter this folder", keys: "/", id: "filter"},
@@ -185,9 +185,12 @@ func (m Model) runPaletteEntry(e paletteEntry) (tea.Model, tea.Cmd) {
 		m.clearFilter()
 		m.pendingSelect = e.id
 		if n, _ := filesystem.ReadNote(e.id); n != nil {
+			if m.floatExp {
+				m.closeOverlay()
+			}
 			m.openNote(n)
 		}
-		return m, cmd
+		return m, tea.Batch(cmd, m.shapeCmd())
 	}
 	return m.runCommand(e.id)
 }

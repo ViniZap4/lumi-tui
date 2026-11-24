@@ -4,34 +4,80 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/vinizap/lumi/tui-client/filesystem"
+	"github.com/vinizap/lumi/tui-client/books"
 )
-
-// animTickMsg drives the home screen animation.
-type animTickMsg time.Time
 
 // yankFlashMsg clears the yank highlight after a brief delay.
 type yankFlashMsg time.Time
 
-func animTick() tea.Cmd {
-	return tea.Tick(60*time.Millisecond, func(t time.Time) tea.Msg {
-		return animTickMsg(t)
-	})
-}
-
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.loadItems, animTick()}
+	cmds := []tea.Cmd{m.loadItems, m.loadRecent, m.shapeCmd()}
 	if m.mouseOn {
 		cmds = append(cmds, tea.EnableMouseCellMotion)
 	}
 	if m.bookMgr != nil {
 		cmds = append(cmds, m.waitForBooks)
 	}
+	m.afterUpdate()
+	cmds = append(cmds, m.mo.kick())
 	return tea.Batch(cmds...)
 }
 
+// Update handles one message, then keeps the per-book last note and
+// the motion state in step and schedules a frame only when something
+// moves (motion.go).
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	tm, cmd := m.update(msg)
+	nm, ok := tm.(Model)
+	if !ok {
+		return tm, cmd
+	}
+	nm.afterUpdate()
+	if k := nm.mo.kick(); k != nil {
+		cmd = tea.Batch(cmd, k)
+	}
+	return nm, cmd
+}
+
+// afterUpdate runs after every message: remembers the focused note,
+// starts the mode pill morph when the mode changed and tells the
+// motion whether the active book is syncing (the breathing dot).
+func (m *Model) afterUpdate() {
+	m.noteRemembered()
+	if m.mo == nil {
+		return
+	}
+	if mode := m.modeName(); mode != m.mo.pillMode {
+		if m.mo.pillMode != "" {
+			m.mo.pillFrom = m.mo.pillMode
+			m.mo.to(animPill, 0, 1)
+		}
+		m.mo.pillMode = mode
+	}
+	m.mo.syncing = m.bookState() == books.StateSyncing
+}
+
+// bookState is the active book's state (StateLocal without one).
+func (m Model) bookState() books.State {
+	if m.bookMgr == nil {
+		return books.StateLocal
+	}
+	if v, ok := m.bookMgr.View(m.activeBookID); ok {
+		return v.Status.State
+	}
+	return books.StateLocal
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case frameMsg:
+		return m, m.mo.frame()
+
+	case recentLoadedMsg:
+		m.recent = msg.items
+		m.homeCursor = clamp(m.homeCursor, 0, max(0, len(m.recent)-1))
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -39,18 +85,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case yankFlashMsg:
 		m.yankHighlight = false
-		return m, nil
-
-	case animTickMsg:
-		if m.viewMode == ViewHome && !m.animDone {
-			m.animCol += 5
-			if m.animCol >= logoMaxRunes()+logoStagger() {
-				m.animCol = logoMaxRunes() + logoStagger()
-				m.animDone = true
-				return m, nil
-			}
-			return m, animTick()
-		}
 		return m, nil
 
 	case itemsLoadedMsg:
@@ -79,28 +113,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor = 0
 			}
 		}
-		// One-shot auto-open: if the user passed `lumi some/note.md`
-		// at the command line, find the matching item and jump into
-		// its Note view. Falls back to a direct disk read if for some
-		// reason the file didn't make it into the listing.
-		if m.initialNotePath != "" {
-			target := m.initialNotePath
-			m.initialNotePath = ""
-			for i, it := range m.items {
-				if it.IsFolder || it.Note == nil {
-					continue
-				}
-				if it.Path == target {
-					m.cursor = i
-					m.openNote(it.Note)
-					return m, nil
-				}
-			}
-			// Listing didn't include the target (e.g. the file lives
-			// outside m.currentDir). Read it directly.
-			if note, err := filesystem.ReadNote(target); err == nil && note != nil {
-				m.openNote(note)
-			}
+		// the rows stagger in whenever the overlay shows a new folder
+		if m.floatExp && m.mo != nil && msg.dir != m.mo.revealDir {
+			m.startReveal()
 		}
 		return m, nil
 
@@ -117,7 +132,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.searchResults = msg.results
-		m.cursor = 0
+		m.searchCursor = 0
 		return m, nil
 
 	case editorDoneMsg:
@@ -132,6 +147,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.reloadBuffer(msg.notePath)
 		if m.ws != nil && m.ws.root != nil && msg.reopen {
+			m.closeOverlay()
 			m.viewMode = ViewFullNote
 		}
 		m.pendingSelect = msg.notePath
@@ -160,15 +176,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case overlayTickMsg:
-		if m.overlayFrame > 0 {
-			m.overlayFrame--
-			if m.overlayFrame > 0 {
-				return m, overlayTick()
-			}
-		}
-		return m, nil
-
 	case loginDoneMsg:
 		return m.onLoginDone(msg)
 
@@ -188,9 +195,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.showHelp {
 			return m.updateHelp(msg)
 		}
-		if m.showBooks {
-			return m.updateBooksPicker(msg)
-		}
 		if m.showBookDetails {
 			m.showBookDetails = false
 			return m, nil
@@ -201,15 +205,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.showInput {
 			return m.updateInput(msg)
 		}
-		if m.floatExp && m.viewMode == ViewFullNote {
+		if m.showSearch && !m.inFileSearch {
+			return m.updateSearch(msg)
+		}
+		if m.floatExp && m.viewMode != ViewConfig {
 			return m.updateFloatExplorer(msg)
 		}
 
 		switch m.viewMode {
 		case ViewHome:
 			return m.updateHome(msg)
-		case ViewTree:
-			return m.updateTree(msg)
 		case ViewFullNote:
 			return m.updateNote(msg)
 		case ViewConfig:

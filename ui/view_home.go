@@ -1,138 +1,147 @@
 package ui
 
 import (
+	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/vinizap/lumi/tui-client/books"
 	"github.com/vinizap/lumi/tui-client/theme"
 )
 
-// logoLines holds each line of the ASCII art for the diagonal wipe animation.
-var logoLines = []string{
-	`██╗     ██╗   ██╗███╗   ███╗██╗`,
-	` ██║     ██║   ██║████╗ ████║██║`,
-	` ██║     ██║   ██║██╔████╔██║██║`,
-	` ██║     ██║   ██║██║╚██╔╝██║██║`,
-	` ███████╗╚██████╔╝██║ ╚═╝ ██║██║`,
-	` ╚══════╝ ╚═════╝ ╚═╝     ╚═╝╚═╝`,
-}
+// The empty home (SPEC-PARTE2 §2): shown when the book has no last
+// note. Calm: the book's name, its sync state and the recent notes; the
+// floating explorer opens over it on arrival.
 
-// logoRuneWidths caches the rune length of each logo line.
-var logoRuneWidths []int
+// notesButton is the top-line explorer button (mouse; also `-`).
+const notesButton = " ≡ notes "
 
-func init() {
-	logoRuneWidths = make([]int, len(logoLines))
-	for i, line := range logoLines {
-		logoRuneWidths[i] = len([]rune(line))
+// notesButtonWidth is its width in columns (the click target).
+var notesButtonWidth = lipgloss.Width(notesButton)
+
+// renderNotesButton paints the button; lit while the overlay is open.
+func (m Model) renderNotesButton() string {
+	t := theme.Current
+	st := lipgloss.NewStyle().Foreground(t.Primary).Background(t.SelectedBg).Bold(true)
+	if m.floatExp {
+		st = st.Foreground(t.Background).Background(t.Accent)
 	}
+	return st.Render(notesButton)
 }
 
-// logoMaxRunes returns the rune length of the longest logo line.
-func logoMaxRunes() int {
-	m := 0
-	for _, w := range logoRuneWidths {
-		if w > m {
-			m = w
+// bookName is the active book's name (the folder name otherwise).
+func (m Model) bookName() string {
+	if m.bookMgr != nil {
+		if v, ok := m.bookMgr.View(m.activeBookID); ok && v.Book.Name != "" {
+			return v.Book.Name
 		}
 	}
-	return m
+	n := filepath.Base(m.rootDir)
+	if n == "" || n == "." || n == "/" {
+		return "(root)"
+	}
+	return n
 }
 
-// logoStagger returns the total diagonal offset across all lines.
-// Each line after the first is delayed by 2 rune columns.
-func logoStagger() int {
-	return (len(logoLines) - 1) * 2
+// syncGlyph is the book state dot, alive: it breathes (braille) while
+// syncing and pulses right after a remote change.
+func (m Model) syncGlyph(st books.State) string {
+	g := st.Glyph()
+	style := lipgloss.NewStyle().Foreground(stateColor(st))
+	if st == books.StateSyncing {
+		if b := m.mo.breatheGlyph(); b != "" {
+			g = b
+		}
+	}
+	if a, _ := m.mo.get(animPulse); a.active && a.pos > 0.15 {
+		g = "◉"
+		style = style.Foreground(theme.Current.Accent).Bold(true)
+	}
+	return style.Render(g)
 }
 
+// renderHome paints the empty home.
 func (m Model) renderHome() string {
-	var s strings.Builder
+	t := theme.Current
+	h := m.contentHeight()
+	dim := lipgloss.NewStyle().Foreground(t.TextDim)
+	text := lipgloss.NewStyle().Foreground(t.Text)
+	key := lipgloss.NewStyle().Foreground(secondaryColor).Bold(true)
 
-	// Vertical centering
-	contentHeight := 20
-	topMargin := (m.height - contentHeight) / 2
-	if topMargin < 0 {
-		topMargin = 0
-	}
-	for i := 0; i < topMargin; i++ {
-		s.WriteString("\n")
-	}
+	top := m.renderNotesButton()
+	brand := lipgloss.NewStyle().Foreground(primaryColor).Bold(true).Render("lumi ")
+	top = padVisual(top, m.width-lipgloss.Width(brand)) + brand
 
-	// Diagonal left-to-right wipe: each line is offset by 2 columns.
-	// Pad every line to the same rune width so lipgloss centers the
-	// block as a whole instead of centering each line independently.
-	maxW := logoMaxRunes()
-
-	var artRendered strings.Builder
-	for i, line := range logoLines {
-		runes := []rune(line)
-		color := theme.Current.LogoColors[i%len(theme.Current.LogoColors)]
-
-		visible := m.animCol - i*2 // diagonal offset
-		if m.animDone {
-			visible = len(runes)
-		}
-		if visible < 0 {
-			visible = 0
-		}
-		if visible > len(runes) {
-			visible = len(runes)
-		}
-
-		// Render the visible portion, then pad with spaces to maxW
-		visibleStr := ""
-		if visible > 0 {
-			visibleStr = lipgloss.NewStyle().
-				Foreground(color).
-				Bold(true).
-				Render(string(runes[:visible]))
-		}
-		pad := maxW - len(runes)
-		if pad < 0 {
-			pad = 0
-		}
-		artRendered.WriteString(visibleStr + strings.Repeat(" ", pad))
-		if i < len(logoLines)-1 {
-			artRendered.WriteString("\n")
+	w := min(m.width-4, 64)
+	var block []string
+	block = append(block, lipgloss.NewStyle().Foreground(primaryColor).Bold(true).Render(truncate(m.bookName(), w)))
+	state := dim.Render("pasta local")
+	if m.bookMgr != nil {
+		if v, ok := m.bookMgr.View(m.activeBookID); ok {
+			st := v.Status.State
+			state = m.syncGlyph(st) + " " + lipgloss.NewStyle().Foreground(stateColor(st)).Render(st.Label())
+			if n := len(v.Pending); n > 0 {
+				state += lipgloss.NewStyle().Foreground(t.Warning).Render(" · " + pendingLabel(n))
+			}
+			if v.Book.IsBound() {
+				state += dim.Render(" · " + v.Book.Account + "@" + books.Host(v.Book.ServerURL))
+			}
 		}
 	}
-
-	// Center the whole block as one unit
-	artBlock := lipgloss.PlaceHorizontal(m.width, lipgloss.Center, artRendered.String())
-	s.WriteString(artBlock)
-	s.WriteString("\n\n")
-
-	// Only show the rest after animation completes
-	if m.animDone {
-		// Subtitle
-		subtitle := lipgloss.NewStyle().
-			Foreground(mutedColor).
-			Width(m.width).
-			Align(lipgloss.Center).
-			Render("Local-first Markdown notes")
-		s.WriteString(subtitle)
-		s.WriteString("\n\n\n")
-
-		// Keybindings
-		keys := []struct{ key, desc string }{
-			{"/", "Search notes"},
-			{"t", "Browse tree"},
-			{"c", "Settings"},
-			{"q", "Quit"},
-		}
-
-		var keysBlock strings.Builder
-		for _, k := range keys {
-			keyStyle := lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render(k.key)
-			descStyle := lipgloss.NewStyle().Foreground(theme.Current.Text).Render("  " + k.desc)
-			keysBlock.WriteString(keyStyle + descStyle + "\n")
-		}
-
-		centered := lipgloss.NewStyle().
-			Width(m.width).
-			Align(lipgloss.Center).
-			Render(keysBlock.String())
-		s.WriteString(centered)
+	block = append(block, state, "")
+	block = append(block, dim.Render("Notas recentes"))
+	if len(m.recent) == 0 {
+		block = append(block, dim.Render("  nenhuma nota ainda — a cria uma no explorador"))
 	}
+	for i, it := range m.recent {
+		num := "  "
+		if i < 9 {
+			num = fmt.Sprintf("%d ", i+1)
+		}
+		rel := m.displayRel(filepath.Dir(it.Path))
+		if rel == "~/." {
+			rel = "~"
+		}
+		name := truncate(it.Name, max(8, w-lipgloss.Width(rel)-8))
+		row := " " + num + name
+		pad := max(1, w-lipgloss.Width(row)-lipgloss.Width(rel))
+		line := text.Render(row) + strings.Repeat(" ", pad) + dim.Render(rel)
+		if i == m.homeCursor {
+			line = lipgloss.NewStyle().Foreground(t.Background).Background(accentColor).Bold(true).
+				Render(padRight(row+strings.Repeat(" ", pad)+rel, w))
+		}
+		block = append(block, line)
+	}
+	block = append(block, "", key.Render("-")+dim.Render(" explorar   ")+key.Render("space")+dim.Render(" comandos   ")+
+		key.Render("gb")+dim.Render(" livros   ")+key.Render("?")+dim.Render(" teclas"))
 
-	return s.String()
+	for i := range block {
+		block[i] = padVisual(block[i], w)
+	}
+	left := max(0, (m.width-w)/2)
+	topPad := max(1, (h-len(block))/2)
+	out := []string{top}
+	for i := 1; i < topPad; i++ {
+		out = append(out, "")
+	}
+	for _, l := range block {
+		out = append(out, strings.Repeat(" ", left)+l)
+	}
+	return strings.Join(out, "\n")
+}
+
+// homeRowAt maps a body row to a recent-note index (-1: none).
+func (m Model) homeRowAt(y int) int {
+	h := m.contentHeight()
+	n := 4 + max(1, len(m.recent)) + 2 // name, state, blank, label, rows, blank, keys
+	if len(m.recent) == 0 {
+		return -1
+	}
+	topPad := max(1, (h-n)/2)
+	i := y - topPad - 4
+	if i < 0 || i >= len(m.recent) {
+		return -1
+	}
+	return i
 }

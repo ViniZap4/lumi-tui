@@ -25,5 +25,5 @@
    func main() { println("hi") }
 
   ────────
- j k scroll   d u half page   gg G top/end   i e edit   E other editor   Tab next link   …
+ j k scroll   d u half page   gg G top/end   i e edit   E other editor   - explorer   ⏎ follow   …
  READ  ~/guide.md · 0%                                                                        local

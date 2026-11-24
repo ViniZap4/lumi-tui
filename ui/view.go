@@ -14,38 +14,37 @@ func (m Model) View() string {
 		return "Loading..."
 	}
 
+	h := m.contentHeight()
 	var body string
 	switch {
 	case m.acct != nil:
 		body = m.renderAccounts()
-	case m.showBooks && m.bookMgr != nil:
-		body = m.renderBooksPicker()
 	case m.showBookDetails && m.bookMgr != nil:
 		body = m.renderBookDetails()
-	case m.showSearch && !m.inFileSearch:
-		body = m.renderWithSearchModal(m.renderBase())
 	default:
 		switch m.viewMode {
-		case ViewHome:
-			body = m.renderHome()
 		case ViewConfig:
 			body = m.renderConfig()
 		case ViewFullNote:
 			body = m.renderWorkspace()
-			if m.floatExp {
-				body = m.renderFloatExplorer(fitHeight(body, m.contentHeight()))
-			}
 		default:
-			if m.showNav {
-				body = m.renderWithNavModal(m.renderTree())
-			} else {
-				body = m.renderTree()
-			}
+			body = m.renderHome()
+		}
+		body = fitHeight(body, h)
+		if m.viewMode != ViewConfig {
+			// the overlay draws while open and while it shrinks away
+			body = m.renderFloatExplorer(body)
+		}
+		if m.showNav {
+			body = m.renderWithNavModal(body)
+		}
+		if m.showSearch {
+			body = m.renderWithSearchModal(body)
 		}
 	}
-	body = fitHeight(body, m.contentHeight())
+	body = fitHeight(body, h)
 	if m.hover != nil && m.viewMode == ViewFullNote {
-		body = fitHeight(m.renderHover(body), m.contentHeight())
+		body = fitHeight(m.renderHover(body), h)
 	}
 	if m.showPalette {
 		body = m.overlayCenter(body, m.renderPalette(), true)
@@ -126,19 +125,6 @@ func colorToAnsiBg(c lipgloss.Color) string {
 	return ""
 }
 
-func (m Model) renderBase() string {
-	switch m.viewMode {
-	case ViewHome:
-		return m.renderHome()
-	case ViewConfig:
-		return m.renderConfig()
-	case ViewFullNote:
-		return m.renderWorkspace()
-	default:
-		return m.renderTree()
-	}
-}
-
 // overlayToast renders a toast notification at the top-right corner of the terminal.
 func (m Model) overlayToast(content string) string {
 	if m.toastMsg == "" {
@@ -163,6 +149,14 @@ func (m Model) overlayToast(content string) string {
 	if toastW+2 > m.width {
 		return content
 	}
+	// slides in from the right edge
+	slide := 0
+	if a, _ := m.mo.get(animToast); a.active {
+		slide = int((1 - a.value(0, 1.2)) * float64(toastW+2))
+		if slide > 0 {
+			toast = truncateToVisualWidth(toast, max(0, toastW-slide))
+		}
+	}
 
 	lines := strings.Split(content, "\n")
 	if len(lines) < 2 {
@@ -174,7 +168,7 @@ func (m Model) overlayToast(content string) string {
 	lineRunes := []rune(stripAnsi(lines[row]))
 	lineW := len(lineRunes)
 
-	startCol := m.width - toastW - 1
+	startCol := m.width - toastW - 1 + max(0, slide)
 	if startCol < 0 {
 		startCol = 0
 	}

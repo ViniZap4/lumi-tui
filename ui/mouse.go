@@ -8,11 +8,14 @@ import (
 
 // Mouse (keyboard-first, mouse-friendly): click selects and focuses a
 // pane, double-click opens, the wheel scrolls whatever is under the
-// pointer. Clicking the status line's book segment opens `gs`.
+// pointer. The "≡ notes" button (top-left) opens the floating explorer;
+// a click outside the overlay closes it. Clicking the status line's
+// book segment opens `gs`.
 
 const doubleClickWindow = 400 * time.Millisecond
 
-// treeTop is the first body row of the explorer columns (header + rule).
+// treeTop is the first row of the explorer columns inside the overlay
+// (header + rule).
 const treeTop = 2
 
 // listWindow is the first visible list index and the number of rows,
@@ -88,7 +91,7 @@ func (m Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			m.helpScroll = max(0, m.helpScroll+wheel*3)
 		}
 		return m, nil
-	case m.showBooks, m.showConfirm, m.showInput, m.showNav, m.showSearch, m.acct != nil:
+	case m.showConfirm, m.showInput, m.showNav, m.showSearch, m.acct != nil:
 		return m, nil
 	case m.hover != nil:
 		if press {
@@ -97,21 +100,35 @@ func (m Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			m.hover.scroll = max(0, m.hover.scroll+wheel)
 		}
 		return m, nil
-	case m.floatExp && m.viewMode == ViewFullNote:
-		// click outside the overlay closes it; wheel moves the list
-		bw, bh := m.width*80/100, m.contentHeight()*80/100
-		x0, y0 := (m.width-bw)/2, (m.contentHeight()-bh)/2
-		if press && (msg.X < x0 || msg.X >= x0+bw || msg.Y < y0 || msg.Y >= y0+bh) {
-			m.floatExp = false
-		} else if wheel != 0 {
-			m.moveCursor(wheel)
-		}
-		return m, nil
 	case m.showBookDetails:
 		if press {
 			m.showBookDetails = false
 		}
 		return m, nil
+	case m.floatExp && m.viewMode != ViewConfig:
+		// click outside the overlay closes it; inside, the explorer
+		r := m.overlayRect()
+		if press && (msg.X < r.x || msg.X >= r.x+r.w || msg.Y < r.y || msg.Y >= r.y+r.h) {
+			m.closeOverlay()
+			return m, m.shapeCmd()
+		}
+		if m.bk != nil {
+			if wheel != 0 {
+				return m.updateBooksLevel(keyRunes(map[int]string{1: "j", -1: "k"}[wheel]))
+			}
+			return m, nil
+		}
+		inner, off := m.explorerFrame()
+		msg.X -= off.x
+		msg.Y -= off.y
+		before := m.focusedPane()
+		tm, cmd := inner.updateExplorerMouse(msg, wheel, press)
+		nm := tm.(Model)
+		nm.width, nm.height = m.width, m.height
+		if nm.focusedPane() != before && nm.focusedPane() != nil {
+			nm.closeOverlay() // double-click opened a note
+		}
+		return nm, cmd
 	}
 
 	// Status line: the right side holds the book segment.
@@ -121,6 +138,10 @@ func (m Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 	if msg.Y >= m.contentHeight() {
 		return m, nil
+	}
+	// The "≡ notes" button in the top line opens the explorer.
+	if press && msg.Y == 0 && msg.X < notesButtonWidth && m.viewMode != ViewConfig {
+		return m.openFloatExplorer()
 	}
 
 	switch m.viewMode {
@@ -133,16 +154,29 @@ func (m Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			m.configMoveUp()
 		}
 		return m, nil
-	case ViewHome:
-		if press {
-			m.viewMode = ViewTree
-		}
+	}
+	// empty home: wheel moves, click selects, double-click opens
+	if wheel != 0 {
+		m.homeCursor = clamp(m.homeCursor+wheel, 0, max(0, len(m.recent)-1))
 		return m, nil
 	}
+	if press {
+		if i := m.homeRowAt(msg.Y); i >= 0 {
+			dbl := m.isDoubleClick(msg.X, msg.Y)
+			m.homeCursor = i
+			if dbl {
+				return m.openRecent(i)
+			}
+		}
+	}
+	return m, nil
+}
 
-	// Explorer.
+// updateExplorerMouse handles the explorer columns; coordinates are
+// relative to the explorer's area (m sized to it, see explorerFrame).
+func (m Model) updateExplorerMouse(msg tea.MouseMsg, wheel int, press bool) (tea.Model, tea.Cmd) {
 	pane, ok := m.columnAt(msg.X)
-	if !ok {
+	if !ok || msg.X < 0 || msg.Y < 0 {
 		return m, nil
 	}
 	colH := m.contentHeight() - treeTop

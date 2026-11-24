@@ -25,7 +25,8 @@ const hoverMaxLines = 40
 func (m Model) openHover(p *notePane, l noteLink) (Model, tea.Cmd) {
 	if l.external {
 		m.hover = &hoverCard{url: l.target, from: p}
-		return m, m.startOverlayAnim()
+		m.mo.to(animHover, 0, 1)
+		return m, nil
 	}
 	n := m.resolveLink(p.buf.path, l.target)
 	if n == nil {
@@ -33,7 +34,8 @@ func (m Model) openHover(p *notePane, l noteLink) (Model, tea.Cmd) {
 		return m, nil
 	}
 	m.hover = &hoverCard{note: n, from: p}
-	return m, m.startOverlayAnim()
+	m.mo.to(animHover, 0, 1) // the link grows into its card
+	return m, nil
 }
 
 func (m Model) updateHover(key string) (tea.Model, tea.Cmd) {
@@ -85,10 +87,10 @@ func (m Model) renderHover(base string) string {
 	h := m.hover
 	t := theme.Current
 	w := min(72, m.width-6)
-	if f := m.overlayFrame; f > 0 {
-		w -= f * 4
+	if a, _ := m.mo.get(animHover); a.active {
+		w = lerp(24, w, a.value(0, 1.1))
 	}
-	w = max(30, w)
+	w = max(24, w)
 	dim := lipgloss.NewStyle().Foreground(t.TextDim)
 	var b strings.Builder
 	if h.url != "" {

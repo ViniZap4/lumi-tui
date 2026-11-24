@@ -163,8 +163,8 @@ func TestSplitsAndPaneNavigation(t *testing.T) {
 	}
 	// the last pane closes the note view
 	m = keys(t, m, "ctrl+w", "q", "ctrl+w", "q")
-	if m.viewMode != ViewTree {
-		t.Fatal("closing the last pane returns to the explorer")
+	if m.viewMode != ViewHome || !m.floatExp {
+		t.Fatal("closing the last pane leaves the home with the explorer open")
 	}
 }
 
@@ -386,12 +386,12 @@ func TestLayoutPersistsPerBook(t *testing.T) {
 	m = keys(t, m, "ctrl+w", "v")
 	m = keys(t, m, "-")
 	m = moveTo(t, m, "Two")
-	m = keys(t, m, "enter", "q")
-	if m.viewMode != ViewTree {
-		t.Fatal("q back to explorer")
+	m = keys(t, m, "enter")
+	// reopening the book lands on its last note with the saved layout
+	fresh := drive(NewModelWithInitialNote(dir, ""))
+	if fresh.viewMode != ViewFullNote || fresh.floatExp {
+		t.Fatalf("reopen: view %v explorer %v", fresh.viewMode, fresh.floatExp)
 	}
-	fresh := newTreeModel(t, dir)
-	fresh = openNamed(t, fresh, "Two")
 	if n := len(fresh.ws.leaves()); n != 2 || fresh.ws.focus.buf.note.Title != "Two" {
 		t.Fatalf("layout restored with %d panes", n)
 	}

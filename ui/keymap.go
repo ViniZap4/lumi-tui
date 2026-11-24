@@ -16,16 +16,17 @@ import (
 )
 
 // The explorer keymap (yazi grammar, the same map as the web and Apple
-// clients; see help.go for the reference card):
+// clients; see help.go for the reference card). The explorer lives only
+// in the floating overlay (float.go); these keys apply inside it:
 //
 //	j k  gg G  ⌃d ⌃u  5j      move (counts allowed)
 //	h l ⏎  H L  ~ gh zh       folders, history, book root
 //	/ n N                     filter in place, next/prev match
 //	a r d y p m .  R          new, rename/move, delete, yank/paste,
 //	                          move picker, hidden, refresh
-//	e i                       edit in $EDITOR
+//	⏎ ⌃v ⌃s  e i E            open here / in a split, edit
 //	⌃h ⌃l  ⌃j ⌃k              pane focus, preview scroll
-//	space :  ?  ,  [ ]  gb gs g1–9  zp  q
+//	space :  ?  ,  [ ]  gb gs g1–9  zp  Esc q (close)
 //
 // Keys are dispatched in layers: overlays (palette, help, prompt,
 // confirm, filter) → a pending chord (g/z) → a count → the focused
@@ -170,7 +171,9 @@ func (m Model) chord(seq string) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 	case "gb":
-		m.openBooksPicker()
+		if m.bookMgr != nil {
+			m.openBooksLevel()
+		}
 		if m.bookMgr == nil {
 			return m, m.showToast("no books registered (lumi books link <dir>)", ToastInfo, 3*time.Second), true
 		}
@@ -199,18 +202,18 @@ func (m *Model) goRoot() tea.Cmd {
 
 // pendingInput is the chord/count shown by the legend.
 func (m Model) pendingInput() string {
-	if m.viewMode == ViewFullNote && !m.floatExp {
-		return m.notePrefix
+	switch {
+	case m.floatExp && m.bk != nil:
+		return m.bk.prefix
+	case m.floatExp:
+		return m.count + m.treePrefix
 	}
-	return m.count + m.treePrefix
+	return m.notePrefix
 }
 
 func (m Model) updateTree(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.showNav {
 		return m.updateTreeNavModal(msg)
-	}
-	if m.showSearch && !m.inFileSearch {
-		return m.updateTreeSearch(msg)
 	}
 	if m.filterTyping {
 		return m.updateFilter(msg)
@@ -425,7 +428,8 @@ func (m Model) updateListPane(key string) (tea.Model, tea.Cmd) {
 	m.count = ""
 	switch key {
 	case "q":
-		return m, tea.Quit
+		m.closeOverlay()
+		return m, nil
 	case "esc":
 		if m.filter != "" {
 			m.clearFilter()
@@ -602,70 +606,88 @@ type noteRef struct {
 	line, col int
 }
 
+// explorerCommands run inside the floating explorer: the palette opens
+// it first when it is closed.
+var explorerCommands = map[string]bool{
+	"create": true, "rename": true, "delete": true, "filter": true, "refresh": true,
+	"preview": true, "hidden": true, "root": true,
+}
+
 // runCommand runs a palette command id.
 func (m Model) runCommand(id string) (tea.Model, tea.Cmd) {
-	if m.viewMode != ViewTree && id != "quit" && id != "settings" && id != "help" && id != "books" &&
-		id != "sync" && id != "prevbook" && id != "nextbook" && id != "legend" && id != "edit" && id != "edit-other" &&
-		id != "accounts" && !strings.HasPrefix(id, "view-") && id != "vsplit" && id != "hsplit" && id != "float" && id != "layout" {
-		m.viewMode = ViewTree
+	var open tea.Cmd
+	if explorerCommands[id] && (!m.floatExp || m.bk != nil) {
+		if !m.floatExp {
+			m, open = m.openFloatExplorer()
+		} else {
+			m.bk = nil
+			open = m.loadItems
+		}
 	}
 	switch id {
 	case "create":
 		m.showInput, m.inputMode, m.inputValue = true, "create", ""
 	case "rename":
-		return m.updateListPane("r")
+		mm, cmd := m.updateListPane("r")
+		return mm, tea.Batch(open, cmd)
 	case "delete":
 		m.askDelete()
 	case "edit":
-		if m.viewMode == ViewFullNote && m.ws != nil && m.ws.focus != nil {
+		if m.viewMode == ViewFullNote && m.ws != nil && m.ws.focus != nil && !m.floatExp {
 			return m.editDefault(m.ws.focus)
 		}
-		return m.updateListPane("e")
+		if m.floatExp {
+			return m.updateFloatExplorer(keyRunes("e"))
+		}
 	case "edit-other":
-		if m.viewMode == ViewFullNote && m.ws != nil && m.ws.focus != nil {
+		if m.viewMode == ViewFullNote && m.ws != nil && m.ws.focus != nil && !m.floatExp {
 			return m.editOther(m.ws.focus)
 		}
-		return m.updateListPane("E")
+		if m.floatExp {
+			return m.updateFloatExplorer(keyRunes("E"))
+		}
 	case "accounts":
 		m.openAccounts()
 	case "view-reader", "view-source", "view-preview", "view-board":
 		if m.ws != nil && m.ws.focus != nil {
 			v := map[string]paneView{"view-reader": viewReader, "view-source": viewSource, "view-preview": viewSplit, "view-board": viewBoard}[id]
+			m.closeOverlay()
 			m.viewMode = ViewFullNote
 			m.setView(m.ws.focus, v)
 			return m, m.shapeCmd()
 		}
 	case "vsplit", "hsplit":
 		if m.ws != nil && m.ws.focus != nil {
+			m.closeOverlay()
 			m.viewMode = ViewFullNote
 			return m.windowCmd(map[string]string{"vsplit": "v", "hsplit": "s"}[id])
 		}
 	case "float":
-		if m.ws != nil && m.ws.root != nil {
-			m.viewMode = ViewFullNote
-			return m.openFloatExplorer()
-		}
+		return m.openFloatExplorer()
 	case "layout":
 		if !m.restoreLayout("") {
 			return m, m.showToast("nenhum layout salvo para este livro", ToastInfo, 2*time.Second)
 		}
+		m.closeOverlay()
 	case "filter":
 		m.filterTyping = true
 	case "search":
-		m.showSearch, m.searchQuery, m.searchType, m.inFileSearch = true, "", "content", false
+		m.showSearch, m.searchQuery, m.searchType, m.searchCursor = true, "", "content", 0
 		return m, m.dispatchSearch()
 	case "refresh":
-		return m.updateListPane("R")
+		mm, cmd := m.updateListPane("R")
+		return mm, tea.Batch(open, cmd)
 	case "preview":
 		mm, cmd, _ := m.chord("zp")
-		return mm, cmd
+		return mm, tea.Batch(open, cmd)
 	case "hidden":
-		return m.updateListPane(".")
+		mm, cmd := m.updateListPane(".")
+		return mm, tea.Batch(open, cmd)
 	case "legend":
 		m.legendOn = !m.legendOn
 		m.persist(func(c *config.Config) { c.ShowLegend = m.legendOn })
 	case "root":
-		return m, m.goRoot()
+		return m, tea.Batch(open, m.goRoot())
 	case "books":
 		mm, cmd, _ := m.chord("gb")
 		return mm, cmd
@@ -683,5 +705,8 @@ func (m Model) runCommand(id string) (tea.Model, tea.Cmd) {
 	case "quit":
 		return m, tea.Quit
 	}
-	return m, nil
+	return m, open
 }
+
+// keyRunes is the KeyMsg for typed runes.
+func keyRunes(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }

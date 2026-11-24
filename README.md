@@ -8,12 +8,26 @@ Built with [Go](https://golang.org) and [Bubbletea](https://github.com/charmbrac
 
 ## Features
 
-- yazi-style Miller columns (parent | list | preview) with the same keymap as
-  the web and Apple clients (`?` shows it): `j/k gg G ⌃d ⌃u` + counts, `h/l`,
-  `H/L` history, `~` root, `/` filter + `n/N`, `a` new (`a/b/name`, `dir/`),
-  `r` rename/move, `d` delete, `y/p` copy, `.` hidden, `zp` preview, `R`
-  refresh, `e/i` edit (default editor), `E` the other editor, `space`/`:` palette, `[ ]` books,
-  `gb gs g1–9`, `⌃h/⌃l` pane focus, `,` settings
+- The floating explorer is the only navigation: a centred overlay with
+  yazi Miller columns (parent | list | preview), or a full-height sheet on
+  terminals under 100×30. Open it with `-`, `<leader>e`, `:explore`, the
+  palette or the `≡ notes` button (mouse); `⏎` opens here, `⌃v`/`⌃s` in a
+  split, `Esc`/`q` close. Inside: the same keymap as the web and Apple
+  clients (`?` shows it): `j/k gg G ⌃d ⌃u` + counts, `h/l`, `H/L` history,
+  `~` root, `/` filter + `n/N`, `a` new (`a/b/name`, `dir/`), `r`
+  rename/move, `d` delete, `y/p` copy, `m` move, `.` hidden, `zp` preview,
+  `R` refresh, `e/i` edit, `E` the other editor, `⌃h/⌃l` column focus
+- Books in the same overlay: `gb` (or `h` at the book root) shows accounts →
+  books with their sync state; `[ ]` and `g1–9` switch
+- Opening a book shows its last opened note (per book, kept in
+  `~/.config/lumi/state/last-notes.json`, never in the book folder);
+  otherwise a calm home (book, sync state, recent notes) with the explorer
+  open
+- Motion that feels alive (harmonica springs): the overlay grows from the
+  centre, rows stagger in, new panes slide open, toasts slide, the mode pill
+  morphs, the sync dot breathes while syncing and pulses on a remote change.
+  Frames tick only while something moves; Settings → "Reduce motion" or
+  `NO_MOTION=1` / `REDUCE_MOTION=1` turn it off
 - Prose preview: glamour + chroma highlighting, task boxes, tables,
   `> [!note]` callouts as coloured boxes, footnotes
 - Command legend (which-key for `g`/`z`/counts) above a status line with the
@@ -33,9 +47,9 @@ Built with [Go](https://golang.org) and [Bubbletea](https://github.com/charmbrac
   source+preview, kanban board for `kanban-plugin` notes, JSON Canvas
   outline; `zv` cycles
 - Panes: `⌃w v/s/q/o/=/hjkl/w/p/f/F`, `:vs`/`:sp`, layout kept per book;
-  floating explorer with `-` / `<leader>e`
+  `q` closes a pane (the last one goes to the home)
 - Accounts and servers inside the TUI (`ga`): sign in/out, remove,
-  web address per server; the books picker shows the sync state
+  web address per server
 - `lumi open [<book>[/<note>]] [--web]` opens the Lumi app (macOS,
   `lumi://`) or the web client
 - Inline images in the reader (timg/chafa/viu), wiki-links, 12 themes

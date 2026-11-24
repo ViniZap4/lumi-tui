@@ -8,11 +8,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/vinizap/lumi/tui-client/domain"
 	"github.com/vinizap/lumi/tui-client/editor"
 	"github.com/vinizap/lumi/tui-client/filesystem"
-	"github.com/vinizap/lumi/tui-client/theme"
 	"github.com/vinizap/lumi/tui-client/vim"
 )
 
@@ -29,7 +27,7 @@ import (
 // updateNote routes a key to the focused pane.
 func (m Model) updateNote(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.ws == nil || m.ws.focus == nil {
-		m.viewMode = ViewTree
+		m.viewMode = ViewHome
 		return m, m.loadItems
 	}
 	m.statusMsg = ""
@@ -101,12 +99,17 @@ func (m Model) commonNoteKey(key string) (Model, tea.Cmd, bool) {
 	case "z", "g":
 		m.notePrefix = key
 		return m, nil, true
-	case "q", "esc":
+	case "q":
+		// close the pane (⌃w q); the last one leaves the empty home
+		// with the floating explorer open
 		m.syncFocusOut()
-		cmd := m.saveAll()
-		m.viewMode = ViewTree
-		m.pendingSelect = p.buf.path
-		return m, tea.Batch(cmd, m.loadItems), true
+		return m, m.closePane(), true
+	case "esc":
+		// clears the link focus and the find; there is no "back":
+		// the floating explorer is the navigation (-, <leader>e)
+		p.link, p.find = -1, ""
+		m.statusMsg = ""
+		return m, nil, true
 	case "i", "e":
 		mm, cmd := m.editDefault(p)
 		return mm, cmd, true
@@ -458,7 +461,7 @@ func (m Model) exCommand(p *notePane, ef vim.Effect) (Model, tea.Cmd) {
 	case "settings", "set":
 		m.enterConfig()
 	case "books", "livros":
-		m.openBooksPicker()
+		m.openBooksLevel()
 	case "accounts", "contas":
 		m.openAccounts()
 	case "help", "h":
@@ -776,117 +779,4 @@ func (m Model) updatePreviewFocus(key string) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	return m, nil
-}
-
-// --- floating explorer -----------------------------------------------
-
-// openFloatExplorer shows the explorer overlay at the note's folder.
-func (m Model) openFloatExplorer() (Model, tea.Cmd) {
-	m.syncFocusOut()
-	m.floatExp = true
-	dir := m.currentDir
-	if m.ws != nil && m.ws.focus != nil {
-		dir = filepath.Dir(m.ws.focus.buf.path)
-		m.pendingSelect = m.ws.focus.buf.path
-	}
-	m.clearFilter()
-	m.pane = PaneList
-	cmds := []tea.Cmd{m.navigateTo(dir, 0), m.startOverlayAnim()}
-	return m, tea.Batch(cmds...)
-}
-
-func (m Model) updateFloatExplorer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	key := msg.String()
-	busy := m.filterTyping || m.showInput || m.showConfirm || m.showNav || m.treePrefix != ""
-	if !busy {
-		switch key {
-		case "esc":
-			if m.filter != "" {
-				m.clearFilter()
-				return m, m.loadItems
-			}
-			m.floatExp = false
-			return m, nil
-		case "q":
-			m.floatExp = false
-			return m, nil
-		case "enter", "l", "right", "ctrl+v", "ctrl+s":
-			it, ok := m.currentItem()
-			if ok && !it.IsFolder && it.Note != nil {
-				how := map[string]string{"ctrl+v": "vsplit", "ctrl+s": "hsplit"}[key]
-				if how == "" {
-					how = "replace"
-				}
-				m.floatExp = false
-				if m.ws == nil || m.ws.root == nil {
-					how = "replace"
-				}
-				return m, m.openNoteIn(it.Note, how)
-			}
-			if key == "ctrl+v" || key == "ctrl+s" {
-				return m, nil
-			}
-		case "e", "i", "E":
-			it, ok := m.currentItem()
-			if ok && it.Note != nil {
-				m.floatExp = false
-				cmd := m.openNoteIn(it.Note, "replace")
-				var c2 tea.Cmd
-				if key == "E" {
-					m, c2 = m.editOther(m.ws.focus)
-				} else {
-					m, c2 = m.editDefault(m.ws.focus)
-				}
-				return m, tea.Batch(cmd, c2)
-			}
-		}
-	}
-	mm, cmd := m.updateTree(msg)
-	nm := mm.(Model)
-	if nm.viewMode == ViewConfig {
-		nm.floatExp = false
-		nm.previousView = ViewFullNote
-		return nm, cmd
-	}
-	nm.viewMode = ViewFullNote
-	if nm.ws == nil || nm.ws.root == nil {
-		nm.viewMode = ViewTree
-		nm.floatExp = false
-	}
-	return nm, cmd
-}
-
-// --- overlay animation ------------------------------------------------
-
-type overlayTickMsg struct{}
-
-const overlayFrames = 3
-
-func (m *Model) startOverlayAnim() tea.Cmd {
-	if m.noteCfg().ReduceMotion {
-		m.overlayFrame = 0
-		return nil
-	}
-	m.overlayFrame = overlayFrames
-	return overlayTick()
-}
-
-func overlayTick() tea.Cmd {
-	return tea.Tick(45*time.Millisecond, func(time.Time) tea.Msg { return overlayTickMsg{} })
-}
-
-// renderFloatExplorer draws the explorer as a centred bordered overlay
-// (~80% × 80%, Miller columns + preview) over the notes.
-func (m Model) renderFloatExplorer(base string) string {
-	pct := 80 - m.overlayFrame*6
-	bw := max(30, m.width*pct/100)
-	bh := max(8, m.contentHeight()*pct/100)
-	inner := m
-	inner.floatExp = false
-	inner.width = bw - 2
-	inner.height = bh - 2 + inner.bottomRows()
-	tree := fitHeight(inner.renderTree(), bh-2)
-	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(theme.Current.Accent).
-		Background(theme.Current.Background).Render(tree)
-	return m.overlayCenter(base, box, false)
 }

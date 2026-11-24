@@ -77,10 +77,9 @@ func main() {
 		store = &books.Store{Registry: &books.Registry{}}
 	}
 
-	// Splash screen only when the user gave lumi no hint at all (no CLI
-	// arg AND no $LUMI_NOTES_DIR). In that case, before falling back to
-	// "splash on cwd", offer the book picker when there are books with a
-	// folder on this device.
+	// When the user gave lumi no hint at all (no CLI arg AND no
+	// $LUMI_NOTES_DIR), offer the book picker before falling back to the
+	// current folder, when there are books with a folder on this device.
 	if splash && initialNote == "" {
 		var withFolder []books.Book
 		for _, b := range store.Registry.Books {
@@ -94,8 +93,8 @@ func main() {
 				rootDir = picked.AbsPath()
 				splash = false
 			}
-			// Cancellation or loader error → fall through to splash so
-			// the user is never blocked by a misbehaving registry.
+			// Cancellation or loader error → fall through to the current
+			// folder so the user is never blocked by a misbehaving registry.
 		}
 	}
 
@@ -137,13 +136,9 @@ func main() {
 			_, _ = account.BumpLastOpenedAt(rootDir, time.Now())
 		}
 
-		var model ui.Model
-		if splash && initialNote == "" {
-			model = ui.NewSimpleModel(rootDir)
-		} else {
-			model = ui.NewModelWithInitialNote(rootDir, initialNote)
-		}
-		model = model.WithBooks(mgr, activeID)
+		// Opens the note, or the book's last note, or the empty home
+		// with the floating explorer open (ui/lastnote.go).
+		model := ui.NewModelWithInitialNote(rootDir, initialNote).WithBooks(mgr, activeID)
 
 		p := tea.NewProgram(model, tea.WithAltScreen())
 		final, err := p.Run()
@@ -170,8 +165,7 @@ func main() {
 // immediately (help/version printed, or a usage error was emitted).
 //
 //   - No args, no $LUMI_NOTES_DIR: rootDir = current dir; splash = true
-//     (this is the only case that opens with the welcome animation —
-//     a brand-new user typing `lumi` from anywhere needs context).
+//     ("no hint": the only case that offers the book picker first).
 //   - $LUMI_NOTES_DIR set: rootDir = env var; splash = false.
 //   - One dir: rootDir = dir; splash = false.
 //   - One .md file: rootDir = parent dir; initialNote = file path; splash = false.

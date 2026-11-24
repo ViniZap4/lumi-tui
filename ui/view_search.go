@@ -64,7 +64,7 @@ func (m Model) renderWithSearchModal(base string) string {
 				name = name[:leftWidth-9] + "..."
 			}
 
-			if i == m.cursor {
+			if i == m.searchCursor {
 				line := lipgloss.NewStyle().
 					Foreground(theme.Current.Background).
 					Background(accentColor).
@@ -82,8 +82,8 @@ func (m Model) renderWithSearchModal(base string) string {
 
 		// Preview
 		var previewBox strings.Builder
-		if m.cursor >= 0 && m.cursor < len(m.searchResults) && m.searchResults[m.cursor].Note != nil {
-			note := m.searchResults[m.cursor].Note
+		if m.searchCursor >= 0 && m.searchCursor < len(m.searchResults) && m.searchResults[m.searchCursor].Note != nil {
+			note := m.searchResults[m.searchCursor].Note
 
 			previewBox.WriteString(lipgloss.NewStyle().
 				Foreground(primaryColor).

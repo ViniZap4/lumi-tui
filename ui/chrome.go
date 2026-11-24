@@ -21,13 +21,10 @@ import (
 // legendVisible: the legend row is shown when enabled, and always while
 // a prompt, a confirmation or the filter needs the line.
 func (m Model) legendVisible() bool {
-	if m.viewMode == ViewHome && !m.showInput && !m.showConfirm {
-		return false
-	}
 	return m.legendOn || m.showInput || m.showConfirm || m.filterTyping
 }
 
-func (m Model) statusVisible() bool { return m.viewMode != ViewHome }
+func (m Model) statusVisible() bool { return true }
 
 // bottomRows is how many rows the chrome takes.
 func (m Model) bottomRows() int {
@@ -55,22 +52,30 @@ func (m Model) legendContext() LegendContext {
 		return CtxPalette
 	case m.showHelp:
 		return CtxHelp
-	case m.showBooks:
-		return CtxBooks
 	case m.showBookDetails:
 		return CtxDetails
 	case m.acct != nil:
 		return CtxAccounts
 	case m.filterTyping:
 		return CtxFilter
+	case m.viewMode == ViewConfig:
+		return CtxSettings
+	case m.floatExp && m.bk != nil:
+		return CtxBooks
+	case m.floatExp:
+		switch m.pane {
+		case PaneParent:
+			return CtxParent
+		case PanePreview:
+			return CtxPreview
+		}
+		return CtxFloat
 	}
 	if m.viewMode == ViewFullNote && m.ws != nil && m.ws.focus != nil {
 		p := m.ws.focus
 		switch {
 		case m.hover != nil:
 			return CtxHover
-		case m.floatExp:
-			return CtxFloat
 		case m.winPending:
 			return CtxWindow
 		}
@@ -95,24 +100,7 @@ func (m Model) legendContext() LegendContext {
 		}
 		return CtxReader
 	}
-	switch m.viewMode {
-	case ViewHome:
-		return CtxHome
-	case ViewConfig:
-		return CtxSettings
-	case ViewFullNote:
-		if m.visualMode != VisualNone {
-			return CtxVisual
-		}
-		return CtxReader
-	}
-	switch m.pane {
-	case PaneParent:
-		return CtxParent
-	case PanePreview:
-		return CtxPreview
-	}
-	return CtxExplorer
+	return CtxHome
 }
 
 func promptLabel(mode string) string {
@@ -182,12 +170,11 @@ func (m Model) modeName() string {
 		return "SETTINGS"
 	case CtxReader:
 		return "READ"
+	case CtxHome:
+		return "HOME"
 	case CtxVisual, CtxEditor, CtxInsert, CtxCmdline:
 		if m.ws != nil && m.ws.focus != nil {
 			return m.ws.focus.buf.eng.Mode().String()
-		}
-		if m.visualMode == VisualLine {
-			return "V-LINE"
 		}
 		return "VISUAL"
 	case CtxBoard:
@@ -216,11 +203,29 @@ func (m Model) modeName() string {
 // pending input, book sync state and pending pushes on the right.
 func (m Model) renderStatusLine() string {
 	t := theme.Current
-	pill := lipgloss.NewStyle().Foreground(t.Background).Background(t.Primary).Bold(true).Render(" " + m.modeName() + " ")
+	pill := m.renderModePill()
 	dim := lipgloss.NewStyle().Foreground(t.TextDim)
 	var left []string
-	switch m.viewMode {
-	case ViewFullNote:
+	switch {
+	case m.floatExp && m.bk != nil:
+		left = append(left, dim.Render("livros"))
+	case m.floatExp:
+		left = append(left, dim.Render(m.displayPath()))
+		if len(m.items) > 0 {
+			left = append(left, dim.Render(fmt.Sprintf("%d/%d", m.cursor+1, len(m.items))))
+		}
+		if m.filter != "" && !m.filterTyping {
+			left = append(left, lipgloss.NewStyle().Foreground(t.Accent).Render("/"+m.filter))
+		}
+		if m.showHidden {
+			left = append(left, dim.Render("hidden"))
+		}
+		if m.yanked != nil {
+			left = append(left, dim.Render("yanked: "+truncate(m.yanked.Name, 20)))
+		}
+	case m.viewMode == ViewHome:
+		left = append(left, dim.Render(m.bookName()))
+	case m.viewMode == ViewFullNote:
 		if m.ws != nil && m.ws.focus != nil {
 			p := m.ws.focus
 			e := p.buf.eng
@@ -254,20 +259,6 @@ func (m Model) renderStatusLine() string {
 				}
 				left = append(left, st.Render(truncate(msg, max(10, m.width/2))))
 			}
-		}
-	case ViewTree:
-		left = append(left, dim.Render(m.displayPath()))
-		if len(m.items) > 0 {
-			left = append(left, dim.Render(fmt.Sprintf("%d/%d", m.cursor+1, len(m.items))))
-		}
-		if m.filter != "" && !m.filterTyping {
-			left = append(left, lipgloss.NewStyle().Foreground(t.Accent).Render("/"+m.filter))
-		}
-		if m.showHidden {
-			left = append(left, dim.Render("hidden"))
-		}
-		if m.yanked != nil {
-			left = append(left, dim.Render("yanked: "+truncate(m.yanked.Name, 20)))
 		}
 	}
 	if m.statusMsg != "" {
@@ -303,6 +294,20 @@ func (m Model) renderStatusLine() string {
 		gap = max(1, m.width-lipgloss.Width(l)-lipgloss.Width(r))
 	}
 	return padVisual(l+strings.Repeat(" ", gap)+r, m.width)
+}
+
+// renderModePill is the mode pill; on a mode change its width morphs
+// from the old label's to the new one's (spring), the label clipped or
+// padded inside it.
+func (m Model) renderModePill() string {
+	t := theme.Current
+	label := " " + m.modeName() + " "
+	if a, ok := m.mo.get(animPill); ok && a.active && m.mo.pillFrom != "" {
+		from := runewidth.StringWidth(" " + m.mo.pillFrom + " ")
+		w := max(3, lerp(from, runewidth.StringWidth(label), a.value(0, 1.15)))
+		label = runewidth.FillRight(runewidth.Truncate(label, w, ""), w)
+	}
+	return lipgloss.NewStyle().Foreground(t.Background).Background(t.Primary).Bold(true).Render(label)
 }
 
 // displayRel shows a path relative to the book root as "~/…".

@@ -167,7 +167,7 @@ func (m Model) updateAccounts(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "gb", "b":
 		m.acct = nil
-		m.openBooksPicker()
+		m.openBooksLevel()
 	}
 	return m, nil
 }

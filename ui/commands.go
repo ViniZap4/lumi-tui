@@ -70,6 +70,7 @@ func (m *Model) showToast(msg string, level ToastLevel, d time.Duration) tea.Cmd
 	m.toastID++
 	m.toastMsg = msg
 	m.toastLevel = level
+	m.mo.to(animToast, 0, 1)
 	id := m.toastID
 	return tea.Tick(d, func(time.Time) tea.Msg {
 		return toastDismissMsg{id: id}

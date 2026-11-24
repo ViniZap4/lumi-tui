@@ -1,20 +1,25 @@
 package ui
 
 import (
+	"path/filepath"
+
 	"github.com/charmbracelet/glamour"
 	"github.com/vinizap/lumi/tui-client/config"
 	"github.com/vinizap/lumi/tui-client/domain"
 	"github.com/vinizap/lumi/tui-client/feed"
+	"github.com/vinizap/lumi/tui-client/filesystem"
 	"github.com/vinizap/lumi/tui-client/theme"
 )
 
 // ViewMode represents the current screen.
 type ViewMode int
 
+// There is no full-screen explorer: the floating explorer overlay
+// (floatExp) is the only navigation and opens over either view
+// (SPEC-PARTE2 §2).
 const (
-	ViewHome     ViewMode = iota // animated splash
-	ViewTree                     // file browser (3-column)
-	ViewFullNote                 // reading a note
+	ViewHome     ViewMode = iota // empty book home (no note open)
+	ViewFullNote                 // the notes workspace (panes)
 	ViewConfig                   // in-app settings
 )
 
@@ -67,10 +72,6 @@ type Model struct {
 	viewMode     ViewMode
 	renderer     *glamour.TermRenderer
 
-	// Home animation (diagonal left-to-right wipe)
-	animCol  int  // how many rune columns have been revealed
-	animDone bool // animation finished
-
 	// Note view state
 	fullNote      *domain.Note
 	contentLines  []string
@@ -103,12 +104,12 @@ type Model struct {
 	showSearch bool
 	showInput  bool
 
-	// Navigation modal state (own cursor, dir, items)
+	// Move picker modal state (own cursor, dir, items)
 	navCursor int
 	navDir    string
 	navItems  []Item
 
-	// Yazi-style navigation history (tree view). histBack holds the
+	// Yazi-style navigation history (explorer). histBack holds the
 	// locations the user came from; histFwd holds locations they went
 	// "back" out of and can return to with `L`. Any fresh navigation
 	// clears histFwd — same contract as a browser. Both stacks are
@@ -116,13 +117,13 @@ type Model struct {
 	histBack []navEntry
 	histFwd  []navEntry
 
-	// treePrefix holds a pending multi-key prefix in the tree view
+	// treePrefix holds a pending multi-key prefix in the explorer
 	// ("g" or "z"). Empty means no prefix is pending. The next key
 	// either completes a chord (gg / gh / zp) or cancels the prefix
 	// and dispatches normally.
 	treePrefix string
 
-	// previewHidden toggles the preview column off in the tree view
+	// previewHidden toggles the preview column off in the explorer
 	// (`zp`). Session-only by design — not persisted to config.
 	previewHidden bool
 
@@ -137,6 +138,7 @@ type Model struct {
 	searchQuery   string
 	searchType    string
 	searchResults []Item
+	searchCursor  int
 	inFileSearch  bool
 	// searchGen is bumped on every dispatchSearch call so stale
 	// results from earlier rapid keystrokes are discarded in Update.
@@ -162,10 +164,10 @@ type Model struct {
 	// model runs without a manager (tests, single-file mode).
 	bookMgr         *feed.Manager
 	activeBookID    string
-	showBooks       bool
-	bookCursor      int
 	showBookDetails bool
 	lastMirrorGen   uint64
+	// books level of the floating explorer (accounts → books).
+	bk *booksLevel
 	// switchTo is set when the user picked another book: the program
 	// quits and main restarts the model on that folder.
 	switchTo string
@@ -179,7 +181,6 @@ type Model struct {
 	configCursor int
 	configItems  []ConfigItem
 	configCfg    *config.Config
-	previousView ViewMode
 
 	// --- Explorer v2 (web/Apple parity) ---
 
@@ -230,26 +231,32 @@ type Model struct {
 	winPending bool
 	// notePrefix is a pending g/z/leader chord in reader/board/canvas.
 	notePrefix string
-	// floatExp shows the floating explorer over the notes.
+	// floatExp shows the floating explorer (the only navigation).
 	floatExp bool
-	// overlayFrame drives the overlay open animation (0 = settled).
-	overlayFrame int
+	// mo drives the springs (motion.go); shared by Model copies.
+	mo *motion
+	// recent lists the book's latest notes on the empty home;
+	// homeCursor is the selected row.
+	recent     []Item
+	homeCursor int
+	// overlayBeforeConfig: settings were opened from the explorer,
+	// which comes back when they close.
+	overlayBeforeConfig bool
+	// lastRemembered is the note last written to last-notes.json.
+	lastRemembered string
 	// hover is the K link card.
 	hover *hoverCard
 	// lastShape is the last DECSCUSR sent.
 	lastShape string
 	// accounts screen and sign-in form.
 	acct *accountsScreen
-
-	// initialNotePath holds an absolute path the user passed at the
-	// command line (`lumi some/note.md`). When set, the first
-	// itemsLoadedMsg handler auto-opens the matching note and clears
-	// the field. Empty string means "no auto-open".
-	initialNotePath string
 }
 
-// NewModel creates and returns a new Model.
-func NewModel(rootDir string) Model {
+// NewModelWithInitialNote builds the model for the book at rootDir.
+// When notePath is set (`lumi <file.md>`, an absolute path) that note
+// opens; otherwise the book's last opened note does, or, with none,
+// the empty home with the floating explorer open.
+func NewModelWithInitialNote(rootDir, notePath string) Model {
 	cfg := config.Load()
 
 	// Resolve the theme based on config
@@ -263,7 +270,7 @@ func NewModel(rootDir string) Model {
 		glamour.WithWordWrap(100),
 	)
 
-	return Model{
+	m := Model{
 		cfg:           cfg,
 		rootDir:       rootDir,
 		currentDir:    rootDir,
@@ -280,30 +287,19 @@ func NewModel(rootDir string) Model {
 		paneNav:       cfg.PaneNav,
 		mouseOn:       cfg.Mouse,
 		prose:         newProseCache(),
+		mo:            newMotion(cfg.ReduceMotion),
 	}
-}
-
-// NewSimpleModel is an alias for backward compatibility with main.go.
-func NewSimpleModel(rootDir string) Model {
-	return NewModel(rootDir)
-}
-
-// NewModelWithInitialNote builds a Model that lands directly on the
-// file-browser view, skipping the home splash. When notePath is set
-// (an absolute file path) it also queues an auto-open of that file as
-// soon as the initial item listing arrives.
-//
-// Use this whenever the user explicitly told lumi where to start —
-// `lumi <dir>`, `lumi <file.md>`, or via $LUMI_NOTES_DIR. The splash
-// only makes sense for `lumi` with no hint at all (see NewSimpleModel),
-// because past that point the user wants to see their notes, not an
-// animation.
-func NewModelWithInitialNote(rootDir, notePath string) Model {
-	m := NewModel(rootDir)
-	m.viewMode = ViewTree
-	m.animDone = true
 	if notePath != "" {
-		m.initialNotePath = notePath
+		if note, err := filesystem.ReadNote(notePath); err == nil && note != nil {
+			m.currentDir = filepath.Dir(notePath)
+			if !pathIsInsideVault(rootDir, m.currentDir) {
+				m.currentDir = rootDir
+			}
+			m.pendingSelect = notePath
+			m.openNoteIn(note, "replace")
+			return m
+		}
 	}
+	m.openBook()
 	return m
 }

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,14 +50,15 @@ func mustMkdir(t *testing.T, path string) {
 	}
 }
 
-// newTreeModel returns a Model sitting on the tree view of dir with
-// the initial item listing loaded.
+// newTreeModel returns a Model on a fresh book (no last note): the
+// empty home with the floating explorer open and its listing loaded.
 func newTreeModel(t *testing.T, dir string) Model {
 	t.Helper()
+	forgetLastNote(t, dir)
 	m := NewModelWithInitialNote(dir, "")
 	m = drive(m)
-	if m.viewMode != ViewTree {
-		t.Fatalf("setup: viewMode = %v, want ViewTree", m.viewMode)
+	if m.viewMode != ViewHome || !m.floatExp {
+		t.Fatalf("setup: viewMode = %v floatExp = %v, want the home with the explorer open", m.viewMode, m.floatExp)
 	}
 	if len(m.items) == 0 {
 		t.Fatalf("setup: no items loaded from %s", dir)
@@ -169,8 +171,8 @@ func TestTreeYaziColumnWalk(t *testing.T) {
 				if m.currentDir != root {
 					t.Fatalf("currentDir = %q, want root %q", m.currentDir, root)
 				}
-				if m.viewMode != ViewTree {
-					t.Fatalf("viewMode = %v, want ViewTree", m.viewMode)
+				if !m.floatExp || m.bk != nil {
+					t.Fatalf("explorer should stay open at the files level")
 				}
 			},
 		},
@@ -518,5 +520,19 @@ func TestTreeExistingBindingsStillDispatch(t *testing.T) {
 			m = press(t, m, tt.keys...)
 			tt.assert(t, m)
 		})
+	}
+}
+
+// forgetLastNote drops dir's last-note record (subtests share a vault).
+func forgetLastNote(t *testing.T, dir string) {
+	t.Helper()
+	ln := readLastNotes()
+	delete(ln.Books, filepath.Clean(dir))
+	data, _ := json.Marshal(ln)
+	if f := lastNotesFile(); f != "" {
+		_ = os.MkdirAll(filepath.Dir(f), 0o700)
+		if err := os.WriteFile(f, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

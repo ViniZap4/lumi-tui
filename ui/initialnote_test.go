@@ -23,11 +23,11 @@ func TestInitialNoteAutoOpen(t *testing.T) {
 	mustWrite(t, plainPath, "# plain\n\nbody.\n")
 	mustWrite(t, hrPath, "# heading\n\nfirst.\n\n---\n\nsecond.\n")
 
-	t.Run("dir-only opens at tree without auto-opening any note", func(t *testing.T) {
+	t.Run("dir-only opens the explorer without auto-opening any note", func(t *testing.T) {
 		m := NewModelWithInitialNote(dir, "")
 		m = drive(m)
-		if got := m.viewMode; got != ViewTree {
-			t.Fatalf("viewMode = %v, want ViewTree", got)
+		if m.viewMode != ViewHome || !m.floatExp {
+			t.Fatalf("viewMode = %v floatExp = %v, want the home with the explorer open", m.viewMode, m.floatExp)
 		}
 		if m.fullNote != nil {
 			t.Fatalf("fullNote should be nil when no initialNotePath, got %s", m.fullNote.Path)

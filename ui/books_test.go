@@ -36,18 +36,24 @@ func pressKeys(m Model, keys ...string) (Model, tea.Cmd) {
 	return m, cmd
 }
 
-func TestGbOpensPickerAndEnterSwitches(t *testing.T) {
+func TestGbOpensBooksLevelAndEnterSwitches(t *testing.T) {
 	m, _, b := newBooksModel(t)
 	m, _ = pressKeys(m, "g", "b")
-	if !m.showBooks {
-		t.Fatal("gb should open the picker")
+	if !m.floatExp || m.bk == nil || m.legendContext() != CtxBooks {
+		t.Fatal("gb should open the floating explorer at the books level")
 	}
 	view := m.View()
-	for _, want := range []string{"livros", "Alpha", "Beta", "u@s", "sem pasta"} {
+	for _, want := range []string{"livros", "Alpha", "Beta", "local", "u@s"} {
 		if !strings.Contains(view, want) {
-			t.Errorf("picker missing %q", want)
+			t.Errorf("books level missing %q", want)
 		}
 	}
+	// accounts → books: the remote account lists its pathless book
+	m, _ = pressKeys(m, "h", "j")
+	if v := m.View(); !strings.Contains(v, "Remote") || !strings.Contains(v, "sem pasta") {
+		t.Errorf("remote account should list Remote (sem pasta)")
+	}
+	m, _ = pressKeys(m, "k", "l")
 	m, cmd := pressKeys(m, "j")
 	tm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = tm.(Model)

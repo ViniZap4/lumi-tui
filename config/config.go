@@ -41,7 +41,7 @@ type Config struct {
 	Autosave        bool     // debounced save of built-in edits
 	AutosaveMs      int
 	ClipboardSync   bool // yank/delete also go to the system clipboard
-	ReduceMotion    bool // no overlay frame animation
+	ReduceMotion    bool // no spring animations (also NO_MOTION / REDUCE_MOTION)
 	// WebOrigins maps a server URL to its web client origin, for
 	// `lumi open --web` (default: lumi-api.<host> → lumi.<host>).
 	WebOrigins map[string]string

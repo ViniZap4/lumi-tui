@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,7 +19,10 @@ func (m *Model) enterConfig() {
 	cfg := config.Load()
 	m.configCfg = cfg
 	m.configCursor = 1 // skip first header
-	m.previousView = m.viewMode
+	m.overlayBeforeConfig = m.floatExp
+	if m.floatExp {
+		m.closeOverlay()
+	}
 	m.viewMode = ViewConfig
 	m.configItems = m.buildConfigItems(cfg)
 }
@@ -76,11 +81,15 @@ func (m Model) buildConfigItems(cfg *config.Config) []ConfigItem {
 func (m Model) updateConfig(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", ",", "q":
-		m.viewMode = m.previousView
-		if m.viewMode == ViewConfig || m.viewMode == ViewHome {
-			m.viewMode = ViewTree
+		m.viewMode = ViewHome
+		if m.ws != nil && m.ws.root != nil {
+			m.viewMode = ViewFullNote
 		}
-		return m, m.loadItems
+		if m.overlayBeforeConfig {
+			m.overlayBeforeConfig = false
+			m.openOverlay()
+		}
+		return m, tea.Batch(m.loadItems, m.shapeCmd())
 	case "ctrl+c":
 		return m, tea.Quit
 	case "g":
@@ -248,6 +257,7 @@ func (m *Model) applyConfigChange(key, value string) tea.Cmd {
 		cfg.Vimrc = value == "on"
 	case "reduce_motion":
 		cfg.ReduceMotion = value == "on"
+		m.mo.setReduced(cfg.ReduceMotion)
 	}
 
 	_ = cfg.Save()
@@ -342,4 +352,43 @@ func boolStr(b bool) string {
 		return "on"
 	}
 	return "off"
+}
+
+// openConfig opens ~/.config/lumi/config.yaml in $EDITOR (written
+// with defaults first when missing).
+func (m Model) openConfig() tea.Cmd {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		// No home dir, no global config — silently bail. Pre-existing
+		// code already swallowed MkdirAll errors here.
+		return nil
+	}
+	configDir := filepath.Join(home, ".config", "lumi")
+	configPath := filepath.Join(configDir, "config.yaml")
+
+	os.MkdirAll(configDir, 0755)
+
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		defaultConfig := strings.Join([]string{
+			"# Lumi Configuration",
+			"",
+			"# Editor command with args",
+			"editor: nvim",
+			"",
+			"# Theme (dark or light)",
+			"theme: dark",
+			"",
+			"# TUI Settings",
+			"show_line_numbers: false",
+			"cursor_style: block",
+			"preview_lines: 10",
+			"default_search_type: filename",
+			"",
+		}, "\n")
+		os.WriteFile(configPath, []byte(defaultConfig), 0644)
+	}
+
+	cfg := config.Load()
+	args := append(cfg.EditorArgs, configPath)
+	return tea.ExecProcess(exec.Command(cfg.Editor, args...), nil)
 }

@@ -30,31 +30,51 @@ func (m Model) layoutRects() map[*notePane]rect {
 			out[n.pane] = r
 			return
 		}
-		k := len(n.kids)
-		if n.dir == 'v' {
-			avail := r.w - (k - 1)
-			x := r.x
-			for i, c := range n.kids {
-				w := avail / k
-				if i == k-1 {
-					w = r.x + r.w - x
-				}
-				place(c, rect{x, r.y, max(1, w), r.h})
-				x += w + 1
-			}
-			return
-		}
-		y := r.y
-		for i, c := range n.kids {
-			h := r.h / k
-			if i == k-1 {
-				h = r.y + r.h - y
-			}
-			place(c, rect{r.x, y, r.w, max(2, h)})
-			y += h
+		for i, cr := range m.childRects(n, r) {
+			place(n.kids[i], cr)
 		}
 	}
 	place(m.ws.root, rect{0, 0, m.width, m.contentHeight()})
+	return out
+}
+
+// childRects splits r between n's children: equal shares, except a
+// pane that is sliding open (motion), which grows from zero to its
+// share. Side by side children leave a 1-column separator.
+func (m Model) childRects(n *layoutNode, r rect) []rect {
+	k := len(n.kids)
+	weights := make([]float64, k)
+	total := 0.0
+	for i, c := range n.kids {
+		weights[i] = 1
+		if a, ok := m.mo.get(animSplit); ok && a.active && c.dir == 0 && c.pane == m.mo.splitPane {
+			weights[i] = a.value(0.02, 1)
+		}
+		total += weights[i]
+	}
+	out := make([]rect, k)
+	if n.dir == 'v' {
+		avail := r.w - (k - 1)
+		x := r.x
+		for i := range n.kids {
+			w := int(float64(avail) * weights[i] / total)
+			if i == k-1 {
+				w = r.x + r.w - x
+			}
+			out[i] = rect{x, r.y, max(1, w), r.h}
+			x += w + 1
+		}
+		return out
+	}
+	y := r.y
+	for i := range n.kids {
+		h := int(float64(r.h) * weights[i] / total)
+		if i == k-1 {
+			h = r.y + r.h - y
+		}
+		out[i] = rect{r.x, y, r.w, max(2, h)}
+		y += h
+	}
 	return out
 }
 
@@ -78,25 +98,14 @@ func (m Model) renderWorkspace() string {
 
 func (m Model) renderNode(n *layoutNode, r rect) []string {
 	if n.dir == 0 {
-		return m.renderPane(n.pane, r.w, r.h)
+		return m.renderPane(n.pane, r.w, r.h, r.x == 0 && r.y == 0)
 	}
-	rects := map[*layoutNode]rect{}
-	k := len(n.kids)
+	rects := m.childRects(n, r)
 	if n.dir == 'v' {
-		avail := r.w - (k - 1)
-		x := r.x
-		for i, c := range n.kids {
-			w := avail / k
-			if i == k-1 {
-				w = r.x + r.w - x
-			}
-			rects[c] = rect{x, r.y, max(1, w), r.h}
-			x += w + 1
-		}
 		out := make([]string, r.h)
 		sep := lipgloss.NewStyle().Foreground(theme.Current.Separator).Render("│")
 		for i, c := range n.kids {
-			block := m.renderNode(c, rects[c])
+			block := m.renderNode(c, rects[i])
 			for row := 0; row < r.h; row++ {
 				if i > 0 {
 					out[row] += sep
@@ -105,20 +114,14 @@ func (m Model) renderNode(n *layoutNode, r rect) []string {
 				if row < len(block) {
 					l = block[row]
 				}
-				out[row] += padVisual(l, rects[c].w)
+				out[row] += padVisual(l, rects[i].w)
 			}
 		}
 		return out
 	}
 	var out []string
-	y := r.y
 	for i, c := range n.kids {
-		h := r.h / k
-		if i == k-1 {
-			h = r.y + r.h - y
-		}
-		out = append(out, m.renderNode(c, rect{r.x, y, r.w, max(2, h)})...)
-		y += h
+		out = append(out, m.renderNode(c, rects[i])...)
 	}
 	return out
 }
@@ -138,8 +141,9 @@ func fitBlock(lines []string, w, h int) []string {
 	return out
 }
 
-// renderPane draws one pane: a header line and the view.
-func (m Model) renderPane(p *notePane, w, h int) []string {
+// renderPane draws one pane: a header line and the view. The pane at
+// the top-left corner carries the "≡ notes" explorer button.
+func (m Model) renderPane(p *notePane, w, h int, origin bool) []string {
 	t := theme.Current
 	focused := m.ws.focus == p
 	title := p.buf.note.Title
@@ -165,7 +169,7 @@ func (m Model) renderPane(p *notePane, w, h int) []string {
 	if focused {
 		ts = ts.Foreground(t.Primary)
 	}
-	left := ts.Render(" "+truncate(title, max(4, w-lipgloss.Width(right)-6))) + lipgloss.NewStyle().Foreground(t.Warning).Render(marks)
+	left := ts.Render(" "+truncate(title, max(4, w-lipgloss.Width(right)-6-notesButtonWidth))) + lipgloss.NewStyle().Foreground(t.Warning).Render(marks)
 	if len(p.buf.note.Tags) > 0 && w > 70 {
 		var tags []string
 		for _, tg := range p.buf.note.Tags {
@@ -173,12 +177,17 @@ func (m Model) renderPane(p *notePane, w, h int) []string {
 		}
 		left += "  " + lipgloss.NewStyle().Foreground(t.Accent).Render(truncate(strings.Join(tags, " "), w/4))
 	}
-	gap := max(1, w-lipgloss.Width(left)-lipgloss.Width(right))
+	btn := ""
+	if origin && w > notesButtonWidth+12 {
+		btn = m.renderNotesButton()
+	}
+	gap := max(1, w-lipgloss.Width(btn)-lipgloss.Width(left)-lipgloss.Width(right))
 	header := left + strings.Repeat(" ", gap) + right
 	if focused && len(m.ws.leaves()) > 1 {
 		header = lipgloss.NewStyle().Underline(true).Render(stripAnsi(header))
 		header = lipgloss.NewStyle().Foreground(t.Primary).Render(header)
 	}
+	header = btn + header
 	bodyH := max(1, h-1)
 	var body []string
 	switch p.view {

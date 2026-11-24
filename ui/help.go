@@ -17,6 +17,13 @@ type keymapSection struct {
 }
 
 var keymapHelp = []keymapSection{
+	{"Navigate (floating explorer)", [][2]string{
+		{"- <leader>e :explore", "open it (also ≡ notes, palette)"},
+		{"⏎  ⌃v  ⌃s", "open here / vertical / horizontal split"},
+		{"Esc  q", "close (click outside too)"},
+		{"gb  h at book root", "books level (accounts → books)"},
+		{"[  ]", "previous / next book"},
+	}},
 	{"Explore", [][2]string{
 		{"j k  ↓ ↑", "move"},
 		{"h  ←  backspace", "up a folder"},
@@ -28,8 +35,7 @@ var keymapHelp = []keymapSection{
 		{"~  gh  zh", "book root"},
 		{"/", "filter in place"},
 		{"n  N", "next / prev match"},
-		{"Esc", "clear filter / back to list"},
-		{"q", "quit"},
+		{"Esc", "clear filter / close"},
 	}},
 	{"Files", [][2]string{
 		{"a", "new note (a/b/name, dir/)"},
@@ -57,7 +63,8 @@ var keymapHelp = []keymapSection{
 		{"K", "link card (j/k scroll, ⏎ open, ⌃w f split)"},
 		{"zv", "next view: reader → source → source+preview"},
 		{"y  /  n N", "copy text · find"},
-		{"q  Esc", "back to explorer"},
+		{"q", "close the pane (the last one: home)"},
+		{"-", "floating explorer"},
 	}},
 	{"Editor (built-in vim)", [][2]string{
 		{"i a o I A O  R", "insert / replace"},
@@ -79,7 +86,6 @@ var keymapHelp = []keymapSection{
 		{"⌃h ⌃j ⌃k ⌃l  ⌃w hjkl", "move between panes"},
 		{"⌃w w  ⌃w p", "next / previous pane"},
 		{"⌃w f  ⌃w F", "open link in a vertical / horizontal split"},
-		{"-  <leader>e", "floating explorer (⏎ here, ⌃v / ⌃s split)"},
 		{"ctrl/alt-click", "open link in a split"},
 	}},
 	{"Board and canvas", [][2]string{
@@ -93,11 +99,12 @@ var keymapHelp = []keymapSection{
 		{"space  :", "command palette (: = commands)"},
 		{"[  ]", "previous / next book"},
 		{"g1–9", "book by number"},
-		{"gb", "all books"},
+		{"gb", "books (in the explorer)"},
 		{"gs", "sync details"},
 		{"ga", "accounts and servers"},
 		{",", "settings"},
 		{"?", "this help"},
+		{"q (home)", "quit"},
 	}},
 }
 
@@ -113,7 +120,7 @@ func helpLines(width int) []string {
 		}
 		out = append(out, head.Render(sec.title))
 		for _, r := range sec.rows {
-			out = append(out, "  "+key.Render(padRight(r[0], 18))+desc.Render(truncate(r[1], max(4, width-22))))
+			out = append(out, "  "+key.Render(padRight(r[0], 22))+desc.Render(truncate(r[1], max(4, width-26))))
 		}
 	}
 	return out

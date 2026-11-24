@@ -8,7 +8,7 @@ import (
 	"github.com/vinizap/lumi/tui-client/filesystem"
 )
 
-// updateTreeNavModal handles keys when the navigation modal is open from tree view (for move).
+// updateTreeNavModal handles keys while the move picker (`m`) is open.
 func (m Model) updateTreeNavModal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -74,12 +74,14 @@ func (m Model) updateTreeNavModal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) updateTreeSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+// updateSearch drives the content search modal (palette "Search note
+// contents"); it has its own cursor so the explorer keeps its row.
+func (m Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.showSearch = false
 		m.searchQuery = ""
-		m.cursor = 0
+		m.searchCursor = 0
 		return m, nil
 	case "ctrl+f":
 		if m.searchType == "filename" {
@@ -88,19 +90,23 @@ func (m Model) updateTreeSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.searchType = "filename"
 		}
 		return m, m.dispatchSearch()
-	case "down":
-		if m.cursor < len(m.searchResults)-1 {
-			m.cursor++
+	case "down", "ctrl+n":
+		if m.searchCursor < len(m.searchResults)-1 {
+			m.searchCursor++
 		}
-	case "up":
-		if m.cursor > 0 {
-			m.cursor--
+	case "up", "ctrl+p":
+		if m.searchCursor > 0 {
+			m.searchCursor--
 		}
 	case "enter":
-		if m.cursor < len(m.searchResults) && m.searchResults[m.cursor].Note != nil {
-			m.openNote(m.searchResults[m.cursor].Note)
+		if m.searchCursor < len(m.searchResults) && m.searchResults[m.searchCursor].Note != nil {
+			if m.floatExp {
+				m.closeOverlay()
+			}
+			m.openNote(m.searchResults[m.searchCursor].Note)
 			m.showSearch = false
-			m.cursor = 0
+			m.searchCursor = 0
+			return m, m.shapeCmd()
 		}
 	case "backspace":
 		if len(m.searchQuery) > 0 {

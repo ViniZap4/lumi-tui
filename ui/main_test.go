@@ -32,6 +32,9 @@ func TestMain(m *testing.M) {
 	os.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, ".config"))
 	os.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, ".cache"))
 	os.Setenv("EDITOR", "true")
+	// Motion off by default so renders are the settled frames; the
+	// motion tests turn it back on with t.Setenv.
+	os.Setenv("REDUCE_MOTION", "1")
 	lipgloss.SetColorProfile(termenv.Ascii)
 	// Never touch the real clipboard, terminal or browser from tests.
 	systemClipboard = &vim.MemClipboard{}

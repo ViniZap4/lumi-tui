@@ -17,9 +17,8 @@ import (
 type LegendContext string
 
 const (
-	CtxExplorer LegendContext = "explorer"
-	CtxPreview  LegendContext = "preview" // preview column focused
-	CtxParent   LegendContext = "parent"  // parent column focused
+	CtxPreview  LegendContext = "preview" // explorer: preview column focused
+	CtxParent   LegendContext = "parent"  // explorer: parent column focused
 	CtxReader   LegendContext = "reader"
 	CtxVisual   LegendContext = "visual"
 	CtxFilter   LegendContext = "filter"
@@ -38,7 +37,7 @@ const (
 	CtxBoard    LegendContext = "board"
 	CtxCanvas   LegendContext = "canvas"
 	CtxWindow   LegendContext = "window" // Ctrl-w pending
-	CtxFloat    LegendContext = "float"  // floating explorer
+	CtxFloat    LegendContext = "float"  // floating explorer (list column)
 	CtxHover    LegendContext = "hover"
 	CtxAccounts LegendContext = "accounts"
 	CtxSplitPre LegendContext = "splitpreview"
@@ -75,7 +74,7 @@ var legendZ = []LegendItem{
 func legendFor(ctx LegendContext, pending string) []LegendItem {
 	count, chord := splitCount(pending)
 	switch ctx {
-	case CtxExplorer, CtxReader, CtxPreview, CtxParent:
+	case CtxFloat, CtxPreview, CtxParent:
 		switch chord {
 		case "g":
 			return legendG
@@ -112,17 +111,21 @@ func legendFor(ctx LegendContext, pending string) []LegendItem {
 		return []LegendItem{
 			{"h l", "column"}, {"j k", "card"}, {"H L", "move ←→"}, {"J K", "move ↑↓"}, {"a o", "new card"},
 			{"⏎ i", "edit"}, {"x", "done"}, {"dd", "delete"}, {"A", "new column"}, {"/", "filter"},
-			{"zv", "source"}, {"e E", "editors"}, {"⌃w", "panes"}, {"q", "back"},
+			{"zv", "source"}, {"e E", "editors"}, {"-", "explorer"}, {"⌃w", "panes"}, {"q", "close"},
 		}
 	case CtxCanvas:
 		return []LegendItem{
 			{"j k Tab", "node"}, {"⏎ gf", "open file"}, {"⌃w f", "in split"}, {"gx", "open link"},
-			{"zv", "JSON source"}, {"-", "explorer"}, {"⌃w", "panes"}, {"q", "back"},
+			{"zv", "JSON source"}, {"-", "explorer"}, {"⌃w", "panes"}, {"q", "close"},
 		}
 	case CtxFloat:
 		return []LegendItem{
-			{"⏎", "open here"}, {"⌃v", "vertical split"}, {"⌃s", "horizontal split"}, {"j k h l", "move"},
-			{"/", "filter"}, {"a r d", "new/rename/delete"}, {"Esc q", "close"},
+			{"⏎", "open here"}, {"⌃v ⌃s", "open in split"}, {"j k", "move"}, {"h l", "folder"},
+			{"Esc q", "close"}, {"/", "filter"}, {"a", "new"}, {"r", "rename"}, {"d", "delete"},
+			{"e i", "edit"}, {"y p", "copy"}, {"m", "move"}, {"gb", "books"}, {"space", "commands"},
+			{"?", "keys"}, {"gg G", "top/end"}, {"H L", "history"}, {"zp", "preview col"},
+			{"⌃d ⌃u", "half page"}, {".", "hidden"}, {"R", "refresh"}, {"[ ]", "prev/next book"},
+			{"⌃h ⌃l", "panes"}, {"gs", "sync"}, {",", "settings"},
 		}
 	case CtxHover:
 		return []LegendItem{{"⏎", "open"}, {"⌃w f", "open in split"}, {"j k", "scroll"}, {"Esc", "close"}}
@@ -130,15 +133,6 @@ func legendFor(ctx LegendContext, pending string) []LegendItem {
 		return []LegendItem{{"a", "sign in"}, {"⏎", "sign in again"}, {"s", "sign out"}, {"d D", "remove account/server"}, {"w", "web address"}, {"Esc", "back"}}
 	case CtxSplitPre:
 		return []LegendItem{{"j k", "scroll"}, {"d u", "half page"}, {"g G", "top/end"}, {"q Esc ⌃h", "back to editor"}}
-	case CtxExplorer:
-		return []LegendItem{
-			{"j k", "move"}, {"h l", "folder"}, {"⏎", "open"}, {"e i", "edit"}, {"E", "other editor"},
-			{"/", "filter"}, {"a", "new"}, {"r", "rename"}, {"d", "delete"},
-			{"y p", "copy"}, {"space", "commands"}, {"?", "keys"}, {"gg G", "top/end"},
-			{"H L", "history"}, {":", "command"}, {"zp", "preview col"}, {"⌃d ⌃u", "half page"},
-			{".", "hidden"}, {"R", "refresh"}, {"[ ]", "prev/next book"}, {"⌃h ⌃l", "panes"},
-			{"gs", "sync"}, {"gb", "books"}, {",", "settings"}, {"q", "quit"},
-		}
 	case CtxParent:
 		return []LegendItem{
 			{"j k", "move"}, {"l ⏎", "enter"}, {"h", "up"}, {"⌃l Esc", "list"},
@@ -152,7 +146,7 @@ func legendFor(ctx LegendContext, pending string) []LegendItem {
 	case CtxReader:
 		return []LegendItem{
 			{"j k", "scroll"}, {"d u", "half page"}, {"gg G", "top/end"}, {"i e", "edit"}, {"E", "other editor"},
-			{"Tab", "next link"}, {"⏎", "follow"}, {"K", "link card"}, {"q Esc", "back"}, {"-", "explorer"},
+			{"-", "explorer"}, {"Tab", "next link"}, {"⏎", "follow"}, {"K", "link card"}, {"q", "close"},
 			{"zv", "next view"}, {"⌃w", "panes"}, {"y", "copy"}, {"/", "find"},
 			{"space", "commands"}, {"?", "keys"}, {"[ ]", "prev/next book"}, {",", "settings"},
 		}
@@ -167,7 +161,10 @@ func legendFor(ctx LegendContext, pending string) []LegendItem {
 	case CtxPalette:
 		return []LegendItem{{"↑ ↓ ⌃n ⌃p", "select"}, {"⏎", "run"}, {"Esc", "close"}, {":", "commands only"}, {"Tab", "next"}}
 	case CtxBooks:
-		return []LegendItem{{"j k", "move"}, {"⏎ l", "open"}, {"1–9", "book n"}, {"J K", "reorder"}, {"Esc", "back"}}
+		return []LegendItem{
+			{"j k", "move"}, {"h l", "accounts / books"}, {"⏎", "open"}, {"1–9", "book n"},
+			{"J K", "reorder"}, {"s", "details"}, {"a", "accounts"}, {"Esc q", "close"},
+		}
 	case CtxSettings:
 		return []LegendItem{{"j k", "move"}, {"h l", "change"}, {"⏎", "edit"}, {"Esc ,", "back"}}
 	case CtxHelp:
@@ -175,7 +172,10 @@ func legendFor(ctx LegendContext, pending string) []LegendItem {
 	case CtxDetails:
 		return []LegendItem{{"any key", "close"}}
 	case CtxHome:
-		return []LegendItem{{"⏎ l", "notes"}, {"/", "search"}, {"gb", "books"}, {",", "settings"}, {"q", "quit"}}
+		return []LegendItem{
+			{"-", "explore"}, {"j k", "recent"}, {"⏎ 1–9", "open"}, {"/", "search"}, {"gb", "books"},
+			{"space", "commands"}, {"?", "keys"}, {",", "settings"}, {"q", "quit"},
+		}
 	}
 	return nil
 }

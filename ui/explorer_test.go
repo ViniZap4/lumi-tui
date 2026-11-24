@@ -72,7 +72,7 @@ func drainFast(cmd tea.Cmd) []tea.Msg {
 			out = append(out, drainFast(sub)...)
 		}
 		return out
-	case toastDismissMsg, animTickMsg, tea.QuitMsg:
+	case toastDismissMsg, frameMsg, tea.QuitMsg:
 		return nil
 	}
 	if strings.HasPrefix(typeName(msg), "tea.") {
@@ -261,8 +261,8 @@ func TestCountsAndHalfPage(t *testing.T) {
 		t.Fatalf("2k → %d", m.cursor)
 	}
 	m = keys(t, m, "2")
-	if m.legendContext() != CtxExplorer || legendFor(CtxExplorer, m.pendingInput())[0].Keys != "2j" {
-		t.Fatalf("legend for a pending count = %+v", legendFor(CtxExplorer, m.pendingInput()))
+	if m.legendContext() != CtxFloat || legendFor(CtxFloat, m.pendingInput())[0].Keys != "2j" {
+		t.Fatalf("legend for a pending count = %+v", legendFor(CtxFloat, m.pendingInput()))
 	}
 	m = keys(t, m, "esc")
 	m = keys(t, m, "ctrl+d")
@@ -360,9 +360,12 @@ func TestPaletteRunsCommandsAndOpensNotes(t *testing.T) {
 	if m.viewMode != ViewFullNote || m.fullNote.Path != filepath.Join(root, "alpha", "nested", "deep.md") {
 		t.Fatalf("view %v note %+v", m.viewMode, m.fullNote)
 	}
+	if m.floatExp {
+		t.Fatal("opening a note from the palette closes the explorer")
+	}
 	m = keys(t, m, "q")
-	if m.viewMode != ViewTree || m.currentDir != filepath.Join(root, "alpha", "nested") {
-		t.Fatalf("q from reader → %v %s", m.viewMode, m.currentDir)
+	if m.viewMode != ViewHome || !m.floatExp || m.currentDir != filepath.Join(root, "alpha", "nested") {
+		t.Fatalf("q on the last pane → home %v, explorer %v at %s", m.viewMode, m.floatExp, m.currentDir)
 	}
 }
 
@@ -377,8 +380,8 @@ func TestHelpAndSettingsOpenFromAnywhere(t *testing.T) {
 		t.Fatal(", settings")
 	}
 	m = keys(t, m, ",")
-	if m.viewMode != ViewTree {
-		t.Fatal(", again should go back")
+	if m.viewMode != ViewHome || !m.floatExp {
+		t.Fatal(", again should go back to the explorer")
 	}
 }
 
@@ -440,8 +443,12 @@ func TestReaderKeys(t *testing.T) {
 		t.Fatal("space opens the palette in the reader")
 	}
 	m = keys(t, m, "esc", "esc")
-	if m.viewMode != ViewTree {
-		t.Fatal("esc back to explorer")
+	if m.viewMode != ViewFullNote || m.floatExp {
+		t.Fatal("esc in the reader stays in the reader (no full-screen explorer to go back to)")
+	}
+	m = keys(t, m, "q")
+	if m.viewMode != ViewHome || !m.floatExp {
+		t.Fatal("q closes the last pane: the empty home with the explorer open")
 	}
 }
 
@@ -455,7 +462,6 @@ func TestBooksBracketsSwitch(t *testing.T) {
 
 func TestStatusLineShowsBookSegment(t *testing.T) {
 	m, _, _ := newBooksModel(t)
-	m.viewMode = ViewTree
 	line := stripAnsi(m.renderStatusLine())
 	if !strings.Contains(line, "EXPLORE") || !strings.Contains(line, "Alpha") {
 		t.Fatalf("status = %q", line)
@@ -467,30 +473,51 @@ func TestMouseClickDoubleClickWheel(t *testing.T) {
 	clock := time.Date(2026, 11, 23, 10, 0, 0, 0, time.UTC)
 	nowFn = func() time.Time { return clock }
 	defer func() { nowFn = time.Now }()
-	left, _, _, sep := treeColumnWidths(m.width, false)
-	x := left + sep + 3
-	click := func(m Model, y int) Model {
+	// the explorer lives in the overlay: coordinates are offset by it
+	inner, off := m.explorerFrame()
+	left, _, _, sep := treeColumnWidths(inner.width, false)
+	x := off.x + left + sep + 3
+	top := off.y + treeTop
+	click := func(m Model, x, y int) Model {
 		next, cmd := m.Update(tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
 		return settle(next.(Model), cmd)
 	}
-	m = click(m, treeTop+1) // beta/
+	m = click(m, x, top+1) // beta/
 	if it, _ := m.currentItem(); it.Name != "beta" {
 		t.Fatalf("click selected %q", it.Name)
 	}
 	clock = clock.Add(100 * time.Millisecond)
-	m = click(m, treeTop+1)
+	m = click(m, x, top+1)
 	if m.currentDir != filepath.Join(root, "beta") {
 		t.Fatalf("double-click did not open: %s", m.currentDir)
 	}
 	m = keys(t, m, "h")
-	next, _ := m.Update(tea.MouseMsg{X: x, Y: treeTop, Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+	next, _ := m.Update(tea.MouseMsg{X: x, Y: top, Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
 	m = next.(Model)
 	if m.cursor != 2 {
 		t.Fatalf("wheel → cursor %d", m.cursor)
 	}
+	// double-click on a note opens it and closes the overlay
+	m = click(m, x, top+2) // One
+	clock = clock.Add(100 * time.Millisecond)
+	m = click(m, x, top+2)
+	if m.viewMode != ViewFullNote || m.floatExp || m.ws.focus.buf.note.Title != "One" {
+		t.Fatalf("double-click on a note: view %v explorer %v", m.viewMode, m.floatExp)
+	}
+	// the "≡ notes" button reopens it; a click outside closes it
+	m = click(m, 1, 0)
+	if !m.floatExp {
+		t.Fatal("≡ notes button should open the explorer")
+	}
+	m = click(m, 0, m.contentHeight()-1)
+	if m.floatExp {
+		t.Fatal("a click outside closes the explorer")
+	}
+	m = click(m, 1, 0)
 	m.mouseOn = false
-	next, _ = m.Update(tea.MouseMsg{X: x, Y: treeTop, Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
-	if next.(Model).cursor != 2 {
+	c := m.cursor
+	next, _ = m.Update(tea.MouseMsg{X: x, Y: top, Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+	if next.(Model).cursor != c {
 		t.Fatal("mouse off but wheel moved")
 	}
 }

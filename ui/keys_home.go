@@ -1,128 +1,77 @@
 package ui
 
 import (
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
-
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/vinizap/lumi/tui-client/config"
 )
 
+// updateHome handles keys on the empty home (the floating explorer is
+// closed): pick a recent note, open the explorer, books, search.
 func (m Model) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Any key during animation skips to the end
-	if !m.animDone {
-		m.animDone = true
-		m.animCol = logoMaxRunes() + logoStagger()
-		return m, nil
+	key := msg.String()
+	if m.notePrefix != "" {
+		pre := m.notePrefix
+		m.notePrefix = ""
+		switch pre + key {
+		case "gg":
+			m.homeCursor = 0
+			return m, nil
+		case "gb":
+			m.openBooksLevel()
+			return m, nil
+		case "gs":
+			m.showBookDetails = m.bookMgr != nil
+			return m, nil
+		case "ga":
+			m.openAccounts()
+			return m, nil
+		case `\e`:
+			return m.openFloatExplorer()
+		}
+		if pre == "g" && len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
+			return m.switchToBook(int(key[0] - '1'))
+		}
+		if key == "esc" {
+			return m, nil
+		}
 	}
-
-	// Search modal open
-	if m.showSearch {
-		return m.updateHomeSearch(msg)
-	}
-
-	switch msg.String() {
+	switch key {
 	case "q", "ctrl+c":
 		return m, tea.Quit
+	case "-", "enter", "l":
+		if key != "-" && m.homeCursor < len(m.recent) {
+			return m.openRecent(m.homeCursor)
+		}
+		return m.openFloatExplorer()
+	case "j", "down":
+		m.homeCursor = clamp(m.homeCursor+1, 0, max(0, len(m.recent)-1))
+	case "k", "up":
+		m.homeCursor = clamp(m.homeCursor-1, 0, max(0, len(m.recent)-1))
+	case "G":
+		m.homeCursor = max(0, len(m.recent)-1)
+	case "g", `\`:
+		m.notePrefix = key
 	case "/":
-		m.showSearch = true
-		m.searchQuery = ""
-		m.searchType = "filename"
-		m.inFileSearch = false
+		m.showSearch, m.searchQuery, m.searchType, m.searchCursor = true, "", "content", 0
 		return m, m.dispatchSearch()
-	case "c":
-		m.enterConfig()
-		return m, nil
-	case "t", "enter":
-		m.viewMode = ViewTree
-		return m, m.loadItems
-	}
-
-	return m, nil
-}
-
-func (m Model) updateHomeSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
-		m.showSearch = false
-		m.searchQuery = ""
-		m.cursor = 0
-		return m, nil
-	case "ctrl+f":
-		if m.searchType == "filename" {
-			m.searchType = "content"
-		} else {
-			m.searchType = "filename"
-		}
-		return m, m.dispatchSearch()
-	case "down":
-		if m.cursor < len(m.searchResults)-1 {
-			m.cursor++
-		}
-		return m, nil
-	case "up":
-		if m.cursor > 0 {
-			m.cursor--
-		}
-		return m, nil
-	case "enter":
-		if m.cursor < len(m.searchResults) && m.searchResults[m.cursor].Note != nil {
-			m.openNote(m.searchResults[m.cursor].Note)
-			m.showSearch = false
-			m.cursor = 0
-		}
-		return m, nil
-	case "backspace":
-		if len(m.searchQuery) > 0 {
-			m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
-			return m, m.dispatchSearch()
-		}
-		return m, nil
 	default:
-		if len(msg.String()) == 1 && msg.String() >= " " && msg.String() <= "~" {
-			m.searchQuery += msg.String()
-			return m, m.dispatchSearch()
+		if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
+			if i := int(key[0] - '1'); i < len(m.recent) {
+				return m.openRecent(i)
+			}
+			return m, nil
+		}
+		if mm, cmd, ok := m.globalKey(key); ok {
+			return mm, cmd
 		}
 	}
-
 	return m, nil
 }
 
-func (m Model) openConfig() tea.Cmd {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		// No home dir, no global config — silently bail. Pre-existing
-		// code already swallowed MkdirAll errors here.
-		return nil
+// openRecent opens the i-th recent note.
+func (m Model) openRecent(i int) (tea.Model, tea.Cmd) {
+	if i < 0 || i >= len(m.recent) || m.recent[i].Note == nil {
+		return m, nil
 	}
-	configDir := filepath.Join(home, ".config", "lumi")
-	configPath := filepath.Join(configDir, "config.yaml")
-
-	os.MkdirAll(configDir, 0755)
-
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		defaultConfig := strings.Join([]string{
-			"# Lumi Configuration",
-			"",
-			"# Editor command with args",
-			"editor: nvim",
-			"",
-			"# Theme (dark or light)",
-			"theme: dark",
-			"",
-			"# TUI Settings",
-			"show_line_numbers: false",
-			"cursor_style: block",
-			"preview_lines: 10",
-			"default_search_type: filename",
-			"",
-		}, "\n")
-		os.WriteFile(configPath, []byte(defaultConfig), 0644)
-	}
-
-	cfg := config.Load()
-	args := append(cfg.EditorArgs, configPath)
-	return tea.ExecProcess(exec.Command(cfg.Editor, args...), nil)
+	m.openNote(m.recent[i].Note)
+	return m, m.shapeCmd()
 }

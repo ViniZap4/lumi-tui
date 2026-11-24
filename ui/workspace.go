@@ -285,6 +285,11 @@ func (m *Model) splitLeaf(target, p *notePane, dir byte) {
 	}
 	m.ws.prev = target
 	m.ws.focus = p
+	// the new pane slides open
+	if m.mo != nil && !m.mo.reduced {
+		m.mo.splitPane = p
+		m.mo.to(animSplit, 0, 1)
+	}
 }
 
 // releaseBuffer saves and forgets old's buffer when no other pane (and
@@ -345,8 +350,8 @@ func (m *Model) setFocus(p *notePane) {
 	m.focusIn(p)
 }
 
-// closePane closes the focused pane; the last pane closes the note
-// view (back to the explorer).
+// closePane closes the focused pane; the last pane leaves the empty
+// home with the floating explorer open at that note.
 func (m *Model) closePane() tea.Cmd {
 	if m.ws == nil || m.ws.focus == nil {
 		return nil
@@ -357,12 +362,17 @@ func (m *Model) closePane() tea.Cmd {
 	par := n.parent
 	if par == nil {
 		m.ws.root, m.ws.focus = nil, nil
-		m.viewMode = ViewTree
+		m.viewMode = ViewHome
+		m.clearFilter()
+		m.pane = PaneList
+		m.openOverlay()
+		var nav tea.Cmd
 		if p.buf != nil {
+			nav = m.navigateTo(filepath.Dir(p.buf.path), 0)
 			m.pendingSelect = p.buf.path
 		}
 		m.saveLayout()
-		return tea.Batch(cmd, m.loadItems)
+		return tea.Batch(cmd, nav, m.loadItems, m.loadRecent)
 	}
 	for i, k := range par.kids {
 		if k == n {
