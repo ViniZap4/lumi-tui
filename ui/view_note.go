@@ -22,28 +22,6 @@ type visualRange struct {
 
 // --- Helpers ---
 
-// prettifyForDisplay rewrites the raw line into a more readable form
-// for the read view. Substitutions are 1-rune for 1-rune so the column
-// math used by the cursor + visual selection still lines up — the
-// underlying contentLines stays standard markdown for file
-// persistence and copy-out.
-//
-// Today this only handles the blockquote prefix; more substitutions
-// can be added here as the visual style evolves.
-func prettifyForDisplay(line string) string {
-	// `> ` blockquote → `│ ` (U+2502 BOX DRAWINGS LIGHT VERTICAL).
-	// Both are single-cell width.
-	trimmed := strings.TrimLeft(line, " \t")
-	pad := line[:len(line)-len(trimmed)]
-	if strings.HasPrefix(trimmed, "> ") {
-		return pad + "│" + trimmed[1:]
-	}
-	if trimmed == ">" {
-		return pad + "│"
-	}
-	return line
-}
-
 // codeBlockLines returns which raw line indices are inside fenced code blocks.
 func codeBlockLines(lines []string) map[int]bool {
 	result := map[int]bool{}
@@ -144,7 +122,7 @@ func (m Model) renderContentLine(line string, baseStyle lipgloss.Style, inlineCl
 	}
 
 	// --- Segment-based rendering ---
-	col := m.colCursor
+	col := 0 // the settings preview has no cursor
 	if col < 0 {
 		col = 0
 	}
@@ -226,19 +204,4 @@ func (m Model) renderContentLine(line string, baseStyle lipgloss.Style, inlineCl
 		}
 	}
 	return result.String()
-}
-
-// truncateForBar shortens s to at most width runes, appending an
-// ellipsis when truncated. width<=0 yields the empty string.
-func truncateForBar(s string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	if len(s) <= width {
-		return s
-	}
-	if width <= 1 {
-		return "…"
-	}
-	return "…" + s[len(s)-width+1:]
 }

@@ -9,16 +9,6 @@ import (
 	"github.com/vinizap/lumi/tui-client/filesystem"
 )
 
-// cancelEmptyInput closes an input modal that was submitted with an
-// empty value and emits a toast so the user knows nothing happened.
-// Previously the modal closed silently — users frequently assumed
-// they'd just created or renamed something when they hadn't.
-func (m *Model) cancelEmptyInput(field string) tea.Cmd {
-	m.showInput = false
-	m.inputValue = ""
-	return m.showToast("Cancelled — "+field+" required", ToastInfo, 2*time.Second)
-}
-
 func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "enter":

@@ -7,7 +7,7 @@ import (
 	"github.com/vinizap/lumi/tui-client/books"
 )
 
-// yankFlashMsg clears the yank highlight after a brief delay.
+// yankFlashMsg redraws once the editor's yank flash has expired.
 type yankFlashMsg time.Time
 
 func (m Model) Init() tea.Cmd {
@@ -84,7 +84,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case yankFlashMsg:
-		m.yankHighlight = false
 		return m, nil
 
 	case itemsLoadedMsg:
@@ -205,7 +204,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.showInput {
 			return m.updateInput(msg)
 		}
-		if m.showSearch && !m.inFileSearch {
+		if m.showSearch {
 			return m.updateSearch(msg)
 		}
 		if m.floatExp && m.viewMode != ViewConfig {

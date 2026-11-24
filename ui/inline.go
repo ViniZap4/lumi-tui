@@ -579,30 +579,6 @@ func classifyInline(line string) []int {
 	return cls
 }
 
-// classifyInlineWithCtx wraps classifyInline and upgrades classifications
-// based on table context — header cells become clsTableHeader, separator
-// rows become clsTableSep.
-func classifyInlineWithCtx(line string, tctx tableLineCtx) []int {
-	cls := classifyInline(line)
-	if cls == nil {
-		return nil
-	}
-	if tctx.isSeparator {
-		for i := range cls {
-			cls[i] = clsTableSep
-		}
-		return cls
-	}
-	if tctx.isHeader {
-		for i, c := range cls {
-			if c == clsNormal {
-				cls[i] = clsTableHeader
-			}
-		}
-	}
-	return cls
-}
-
 // resolveInlineStyle maps an inline class to a lipgloss style, using baseStyle
 // as the foundation for bold/italic (so they inherit the line-level foreground).
 func resolveInlineStyle(cls int, baseStyle lipgloss.Style) lipgloss.Style {

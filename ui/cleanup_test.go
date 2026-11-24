@@ -43,31 +43,3 @@ func TestPerformSearch_SortsByName(t *testing.T) {
 		t.Errorf("expected 3 results, got %d (%v)", len(names), names)
 	}
 }
-
-// L4: cancelEmptyInput closes the modal, clears the value, and emits a
-// toast (so the user knows the modal didn't silently accept their empty
-// input). Previously the modal closed without any feedback.
-func TestCancelEmptyInput_DismissesAndToasts(t *testing.T) {
-	m := Model{
-		showInput:  true,
-		inputValue: "",
-		inputMode:  "create",
-	}
-	cmd := m.cancelEmptyInput("title")
-	if m.showInput {
-		t.Error("expected showInput to be cleared")
-	}
-	if m.inputValue != "" {
-		t.Errorf("expected inputValue cleared, got %q", m.inputValue)
-	}
-	if m.toastMsg == "" {
-		t.Error("expected a toast message to be set")
-	}
-	if cmd == nil {
-		t.Fatal("expected a non-nil dismiss Cmd from showToast")
-	}
-	// The Cmd returns a toastDismissMsg after the timeout fires. We
-	// don't run it (would actually wait 2s) — just confirm the type
-	// shape stays consistent if the Cmd is invoked.
-	_ = cmd
-}

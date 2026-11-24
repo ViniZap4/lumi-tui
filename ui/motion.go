@@ -166,11 +166,6 @@ func (mo *motion) get(k animKind) (anim, bool) {
 	return mo.a[k], true
 }
 
-// moving: k is mid-flight.
-func (mo *motion) moving(k animKind) bool {
-	return mo != nil && mo.a[k].active
-}
-
 // springing: some spring has not settled.
 func (mo *motion) springing() bool {
 	for _, a := range mo.all() {

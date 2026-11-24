@@ -23,15 +23,6 @@ const (
 	ViewConfig                   // in-app settings
 )
 
-// VisualModeType represents the type of visual selection.
-type VisualModeType int
-
-const (
-	VisualNone VisualModeType = iota
-	VisualChar                // v - character-wise selection
-	VisualLine                // V - line-wise selection
-)
-
 // ConfigItemKind represents the kind of config item.
 type ConfigItemKind int
 
@@ -62,42 +53,20 @@ type Item struct {
 // Model is the main Bubbletea model for the TUI.
 type Model struct {
 	// Core state
-	rootDir      string
-	currentDir   string
-	folderConfig *config.FolderConfig
-	items        []Item
-	cursor       int
-	width        int
-	height       int
-	viewMode     ViewMode
-	renderer     *glamour.TermRenderer
+	rootDir    string
+	currentDir string
+	items      []Item
+	cursor     int
+	width      int
+	height     int
+	viewMode   ViewMode
+	renderer   *glamour.TermRenderer
 
-	// Note view state
-	fullNote      *domain.Note
-	contentLines  []string
-	renderedView  string
-	renderedLines []string
-	lineCursor    int
-	colCursor     int
-	desiredCol    int
-
-	// Visual mode
-	visualMode     VisualModeType
-	visualStart    int
-	visualEnd      int
-	visualStartCol int
-	visualEndCol   int
+	// fullNote is the focused pane's note (link resolution).
+	fullNote *domain.Note
 
 	// Transient status message (e.g. "3 lines yanked"), cleared on next keypress
 	statusMsg string
-
-	// Yank highlight flash (brief visual feedback after yanking)
-	yankHighlight bool
-	yankMode      VisualModeType
-	yankStartLine int
-	yankEndLine   int
-	yankStartCol  int
-	yankEndCol    int
 
 	// Modals
 	showNav    bool
@@ -139,7 +108,6 @@ type Model struct {
 	searchType    string
 	searchResults []Item
 	searchCursor  int
-	inFileSearch  bool
 	// searchGen is bumped on every dispatchSearch call so stale
 	// results from earlier rapid keystrokes are discarded in Update.
 	// Without this guard, a slow walk for query "lum" could overwrite
@@ -263,8 +231,6 @@ func NewModelWithInitialNote(rootDir, notePath string) Model {
 	theme.Resolve(cfg.ThemeMode, cfg.DarkTheme, cfg.LightTheme)
 	ApplyTheme()
 
-	folderCfg := config.LoadFolderConfig(rootDir)
-
 	renderer, _ := glamour.NewTermRenderer(
 		glamour.WithStylePath(glamourStyle()),
 		glamour.WithWordWrap(100),
@@ -279,7 +245,6 @@ func NewModelWithInitialNote(rootDir, notePath string) Model {
 		viewMode:      ViewHome,
 		renderer:      renderer,
 		searchType:    cfg.SearchType,
-		folderConfig:  folderCfg,
 		pane:          PaneList,
 		previewHidden: !cfg.ShowPreview,
 		showHidden:    cfg.ShowHidden,
