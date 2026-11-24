@@ -34,7 +34,9 @@ Built with [Go](https://golang.org) and [Bubbletea](https://github.com/charmbrac
   Frames tick only while something moves; Settings → "Reduce motion" or
   `NO_MOTION=1` / `REDUCE_MOTION=1` turn it off
 - Prose preview: glamour + chroma highlighting, task boxes, tables,
-  `> [!note]` callouts as coloured boxes, footnotes
+  `> [!note]` callouts as coloured boxes, footnotes, ```` ```mermaid ````
+  blocks framed as "◇ mermaid · <kind>" (simple flowcharts and sequence
+  diagrams drawn in box-drawing text, other kinds show their source)
 - Command legend (which-key for `g`/`z`/counts) above a status line with the
   book's sync state and pending pushes
 - Mouse: click selects, double-click opens, wheel scrolls (toggle in settings)
@@ -50,7 +52,8 @@ Built with [Go](https://golang.org) and [Bubbletea](https://github.com/charmbrac
   open the other. Both save through the epoch-checked 3-way push.
 - Views: prose reader with a read-only vim cursor (`h j k l w b e 0 $ gg G`,
   counts, `/ n N`, `v V ⌃v` selection, `y`/`yy` to the clipboard; `⏎/gf`
-  follow the link under the cursor, `⌃w f/F` in a split, `gx` browser,
+  follow the link under the cursor, `⌃w f/F` in a split, `gx` browser
+  (on a mermaid diagram: the note in the app / web),
   `Tab` next link, `K` link card, `⏎`/`x` toggle a task; click a link to
   follow it), source, source+preview (`⌃l` reads the preview with the same
   cursor), kanban boards and JSON Canvas with Reading | Edit | Source

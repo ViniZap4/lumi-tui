@@ -62,7 +62,7 @@ var keymapHelp = []keymapSection{
 		{"p x d c …", "refused: the reader is read-only (E21)"},
 		{"⏎  gf", "follow the link under the cursor"},
 		{"⌃w f  ⌃w F  S s", "follow it in a vertical / horizontal split"},
-		{"gx", "open the external link in the browser"},
+		{"gx", "open the external link in the browser · on a mermaid diagram: the note in the app / web"},
 		{"Tab ⇧Tab", "cursor to the next / previous link"},
 		{"K", "link card (j/k scroll, ⏎ open, ⌃w f split)"},
 		{"⏎  x on a task", "toggle the checkbox (saved)"},

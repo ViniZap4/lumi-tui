@@ -21,6 +21,13 @@ import (
 // openedURLs records what would have been opened in a browser.
 var openedURLs []string
 
+// openedInApp records the notes `lumi open` would have opened (gx on a
+// mermaid diagram); openInAppResult is what the fake returns.
+var (
+	openedInApp     []string
+	openInAppResult = func(string) (string, error) { return "Opened lumi://open?note=test", nil }
+)
+
 var update = flag.Bool("update", false, "rewrite golden files")
 
 // TestMain isolates every UI test from the owner's real config: HOME
@@ -44,6 +51,10 @@ func TestMain(m *testing.M) {
 	systemClipboard = &vim.MemClipboard{}
 	termOut = io.Discard
 	openURLFn = func(u string) { openedURLs = append(openedURLs, u) }
+	openInAppFn = func(p string) (string, error) {
+		openedInApp = append(openedInApp, p)
+		return openInAppResult(p)
+	}
 	// Server checks (GET /api/info) only ever reach httptest servers.
 	infoClient = &http.Client{Timeout: 2 * time.Second, Transport: loopbackOnly{}}
 	theme.Resolve("dark", "tokyo-night", "catppuccin-latte")

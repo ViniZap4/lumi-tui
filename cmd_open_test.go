@@ -133,3 +133,25 @@ func TestOpenUnknownWebOriginHint(t *testing.T) {
 		t.Fatalf("%d %s %v", code, errb.String(), *calls)
 	}
 }
+
+// The TUI's gx on a mermaid diagram runs `lumi open <absolute note
+// path>`: the book is found from the path's folder, the note from the
+// rest (bound books by note id, local books by relative path).
+func TestOpenAbsoluteNotePath(t *testing.T) {
+	_, local, bound := seedOpenBooks(t)
+	calls := withOpenHooks(t, "darwin")
+	var out, errb bytes.Buffer
+	if code := runOpenCmd([]string{filepath.Join(bound, "plano.md")}, &out, &errb); code != 0 {
+		t.Fatalf("%d %s", code, errb.String())
+	}
+	if len(*calls) != 1 || !strings.HasSuffix((*calls)[0][1], "&note=plano-id") {
+		t.Fatalf("bound: calls %v", *calls)
+	}
+	out.Reset()
+	if code := runOpenCmd([]string{filepath.Join(local, "dir", "ideia.md"), "--print"}, &out, &errb); code != 0 {
+		t.Fatalf("%d %s", code, errb.String())
+	}
+	if !strings.HasSuffix(strings.TrimSpace(out.String()), "&note=dir%2Fideia.md") {
+		t.Fatalf("local: %q", out.String())
+	}
+}

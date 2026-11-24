@@ -416,6 +416,8 @@ func (m Model) runEffect(p *notePane, ef vim.Effect) (Model, tea.Cmd) {
 		if l, ok := m.linkUnderCursor(p); ok && l.external {
 			openURLFn(l.target)
 			m.statusMsg = "aberto no navegador"
+		} else if m.cursorInMermaid(p) {
+			return m, m.openNoteInApp(p)
 		}
 	case vim.EffHostMap:
 		if ef.Arg == "explorer" {

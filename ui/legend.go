@@ -50,7 +50,7 @@ const (
 )
 
 var legendNoteG = []LegendItem{
-	{"gg", "top"}, {"gf", "follow link"}, {"gx", "open URL"}, {"gb", "books"}, {"gs", "sync details"}, {"ga", "accounts"},
+	{"gg", "top"}, {"gf", "follow link"}, {"gx", "open URL / diagram"}, {"gb", "books"}, {"gs", "sync details"}, {"ga", "accounts"},
 }
 
 var legendNoteZ = []LegendItem{{"zv", "next view"}}

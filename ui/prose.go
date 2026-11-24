@@ -160,6 +160,7 @@ var (
 
 type proseSeg struct {
 	callout string // "" = plain markdown
+	mermaid bool   // body is a ```mermaid block's source
 	title   string
 	body    string
 }
@@ -179,6 +180,19 @@ func splitProse(md string) (segs []proseSeg, notes []string, ids map[string]int)
 	inFence := false
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
+		if m := reMermaidFence.FindStringSubmatch(line); m != nil && !inFence {
+			flush()
+			var body []string
+			for i+1 < len(lines) {
+				i++
+				if mermaidFenceEnd(lines[i], m[1]) {
+					break
+				}
+				body = append(body, lines[i])
+			}
+			segs = append(segs, proseSeg{mermaid: true, body: strings.Join(body, "\n")})
+			continue
+		}
 		if fenceLine.MatchString(line) {
 			inFence = !inFence
 			plain = append(plain, line)
@@ -313,6 +327,10 @@ func renderProse(c *proseCache, md string, width int) string {
 	segs, notes, ids := splitProse(md)
 	var parts []string
 	for _, sg := range segs {
+		if sg.mermaid {
+			parts = append(parts, renderMermaid(sg.body, width))
+			continue
+		}
 		body := replaceFootRefs(sg.body, ids)
 		if sg.callout == "" {
 			if strings.TrimSpace(body) == "" {

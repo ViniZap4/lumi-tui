@@ -172,6 +172,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		return m.updateMouse(msg)
 
+	case appOpenedMsg:
+		return m.onAppOpened(msg)
+
 	case autosaveMsg:
 		if m.ws != nil {
 			if b, ok := m.ws.bufs[msg.path]; ok && b.editSeq == msg.seq && b.dirty() {

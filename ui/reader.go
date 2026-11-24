@@ -23,7 +23,8 @@ import (
 //
 //	⏎ / gf    follow the link under the cursor (on a task: toggle it)
 //	⌃w f / F  follow it in a vertical / horizontal split (also S / s)
-//	gx        open an external link in the browser
+//	gx        open an external link in the browser; inside a mermaid
+//	          diagram, open the note in the Lumi app / web client
 //	Tab ⇧Tab  jump to the next / previous link
 //	K         link card
 //	x         toggle the task under the cursor (a link: open it)
@@ -50,7 +51,9 @@ type readerDoc struct {
 	// tasks maps a rendered line that starts a task item to the source
 	// line of that task (-1: not a task line).
 	tasks []int
-	eng   *vim.Engine
+	// mermaid holds the [first, last] rendered lines of each mermaid block.
+	mermaid [][2]int
+	eng     *vim.Engine
 }
 
 // readerDoc is the reader view's document at the pane's current size,
@@ -95,6 +98,7 @@ func (m Model) buildDoc(p *notePane, old *readerDoc, width int, images bool) *re
 	d.links = findLinks(body)
 	d.pos = linkPositions(d.plain, d.links)
 	d.tasks = mapTasks(d.plain, body)
+	d.mermaid = mermaidBlocks(d.plain)
 	text := strings.Join(texts, "\n")
 	if old != nil {
 		// same engine: cursor, marks, search and registers survive
@@ -350,6 +354,8 @@ func (m Model) proseHostKey(p *notePane, d *readerDoc, key string, h int) (Model
 			if i := d.linkAtCursor(); i >= 0 && d.links[i].external {
 				openURLFn(d.links[i].target)
 				m.statusMsg = "aberto no navegador: " + truncate(d.links[i].target, 40)
+			} else if d.inMermaid(d.eng.Cursor().Line) {
+				return m, m.openNoteInApp(p), true
 			} else {
 				m.statusMsg = "nenhum link externo no cursor"
 			}
