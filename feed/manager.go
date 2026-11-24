@@ -415,7 +415,7 @@ func (m *Manager) refreshVault(a account.Account, b books.Book) {
 func (m *Manager) refreshBooks() {
 	ctx, cancel := context.WithTimeout(m.ctx, 60*time.Second)
 	defer cancel()
-	listings, _ := m.ListAll(ctx, m.accounts)
+	listings, _ := m.ListAll(ctx, m.Accounts())
 	m.mu.Lock()
 	res := books.Reconcile(m.store.Registry, listings, m.Now(), func() string { return newUUID() })
 	if res.Changed() && !m.store.Registry.ReadOnly {
