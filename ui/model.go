@@ -218,6 +218,8 @@ type Model struct {
 	lastShape string
 	// accounts screen and sign-in form.
 	acct *accountsScreen
+	// ctxMenu is the explorer's right-click menu (float_mouse.go).
+	ctxMenu *ctxMenu
 }
 
 // NewModelWithInitialNote builds the model for the book at rootDir.

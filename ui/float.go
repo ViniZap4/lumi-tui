@@ -52,8 +52,9 @@ func (m Model) explorerFrame() (Model, rect) {
 	r := m.overlayRect()
 	inner := m
 	inner.width = max(1, r.w-2)
-	inner.height = max(1, r.h-2) + m.bottomRows()
-	return inner, rect{r.x + 1, r.y + 1, inner.width, max(1, r.h-2)}
+	// the last inner row is the footer legend
+	inner.height = max(1, r.h-3) + m.bottomRows()
+	return inner, rect{r.x + 1, r.y + 1, inner.width, max(1, r.h-3)}
 }
 
 // openOverlay shows the overlay (files level) and starts its springs.
@@ -76,6 +77,7 @@ func (m *Model) openOverlay() {
 func (m *Model) closeOverlay() {
 	m.floatExp = false
 	m.bk = nil
+	m.ctxMenu = nil
 	m.filterTyping = false
 	m.treePrefix, m.count = "", ""
 	m.mo.to(animOverlay, math.NaN(), 0)
@@ -118,6 +120,9 @@ func (m Model) focusedPane() *notePane {
 }
 
 func (m Model) updateFloatExplorer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.ctxMenu != nil {
+		return m.updateCtxMenuKey(msg.String())
+	}
 	if m.bk != nil {
 		return m.updateBooksLevel(msg)
 	}
@@ -204,11 +209,16 @@ func (m Model) renderFloatExplorer(base string) string {
 	iw, ih := max(1, r.w-2), max(1, r.h-2)
 	var content string
 	if m.bk != nil {
-		content = m.renderBooksLevel(iw, ih)
+		content = m.renderBooksLevel(iw, max(1, ih-1))
 	} else {
 		inner, _ := m.explorerFrame()
 		inner.floatExp = false
 		content = inner.renderTree()
+	}
+	content = fitHeight(content, max(1, ih-1))
+	if ih > 1 {
+		foot, _ := m.explorerFooter(iw)
+		content += "\n" + foot
 	}
 	lines := strings.Split(fitHeight(content, ih), "\n")
 	cw, ch := iw, ih
@@ -230,7 +240,12 @@ func (m Model) renderFloatExplorer(base string) string {
 		Background(theme.Current.Background).Render(strings.Join(lines, "\n"))
 	x := r.x + (iw-cw)/2
 	y := r.y + (ih-ch)/2
-	return overlayBox(base, box, x, y, m.width)
+	out := overlayBox(base, box, x, y, m.width)
+	if m.ctxMenu != nil && s >= 1 {
+		mb, mr := m.ctxMenuBox()
+		out = overlayBox(out, mb, mr.x, mr.y, m.width)
+	}
+	return out
 }
 
 // --- books level (accounts → books) ------------------------------------

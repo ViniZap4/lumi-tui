@@ -220,6 +220,9 @@ func (m Model) renderPalette() string {
 	for i := start; i < len(res) && i < start+rows; i++ {
 		e := res[i]
 		tag := map[paletteKind]string{palCommand: "cmd ", palBook: "book", palNote: "note"}[e.kind]
+		if e.kind == palNote {
+			tag = padRight(kindOf(e.id).glyph()+" ", 4)
+		}
 		right := e.keys
 		if e.kind != palCommand {
 			right = e.detail

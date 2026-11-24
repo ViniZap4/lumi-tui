@@ -3,27 +3,27 @@
           ╭──────────────────────────────────────────────────────────────────────────────╮
           │ lumi · 001 · 2 items                                                         │
           │──────────────────────────────────────────────────────────────────────────────│
-          │ ▸ projects/                           │  Guide                               │
-          │ > Guide                                                                      │
-          │                                          ──────────────────────────────────  │
-          │                                          #docs                               │
-          │                                                                              │
-          │                                          Field guide                         │
-          │                                                                              │
-          │                                          Some prose with bold,  code  and a  │
-          │                                          link https://example.com.¹          │
-          │                                                                              │
-          │                                          Tasks                               │
-          │                                                                              │
-          │                                          ☐ write the spec                    │
-          │                                          ☑ ship the TUI                      │
-          │                                          • plain bullet                      │
-          │                                                                              │
-          │                                          ╭─────────────────────────────────╮ │
-          │                                          1–12 / 31                           │
+          │  ▸ projects/                          │  ▤ Guide                             │
+          │ >▤ Guide                open · ⇥ · ⇩  │                                      │
+          │                                       │  ──────────────────────────────────  │
+          │                                       │  #docs                               │
+          │                                       │                                      │
+          │                                       │  Field guide                         │
+          │                                       │                                      │
+          │                                       │  Some prose with bold,  code  and a  │
+          │                                       │  link https://example.com.¹          │
+          │                                       │                                      │
+          │                                       │  Tasks                               │
+          │                                       │                                      │
+          │                                       │  ☐ write the spec                    │
+          │                                       │  ☑ ship the TUI                      │
+          │                                       │  • plain bullet                      │
+          │                                       │                                      │
+          │                                       │  1–11 / 31                           │
+          │ ⏎ open here  ⌃v ⌃s open in split  j k move  h l folder  / filter  …  2 itens │
           ╰──────────────────────────────────────────────────────────────────────────────╯
 
 
 
- ⏎ open here   ⌃v ⌃s open in split   j k move   h l folder   Esc q close   / filter   a new   …
+
  EXPLORE  ~ · 2/2                                                                             local

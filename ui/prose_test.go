@@ -51,7 +51,9 @@ func TestExplorerGolden(t *testing.T) {
 	m = keys(t, m, "j")
 	golden(t, "explorer-100x30", headerless(m.View()))
 	m = keys(t, m, "g")
-	golden(t, "explorer-which-key-g", lastLines(m.View(), 2))
+	// the which-key row is the overlay's footer now
+	foot, _ := m.explorerFooter(m.overlayRect().w - 2)
+	golden(t, "explorer-which-key-g", foot)
 	m = keys(t, m, "esc", "enter")
 	golden(t, "reader-100x30", headerless(m.View()))
 }

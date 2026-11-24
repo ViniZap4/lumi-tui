@@ -1,4 +1,4 @@
- ≡ notes  One                                                                               leitura
+ ≡ notes  ▤ One                                                                             leitura
   one
 
   See [[two]] and the site https://example.com.
@@ -21,4 +21,4 @@
 
 
  h j k l cursor   v V ⌃v select   y yy copy   ⏎ gf follow link   Tab next link   K link card   …
- READ  ~/one.md · Ln 3 Col 7 · 100% · link 1/2: two                                           local
+ READ  ▤ ~/one.md · Ln 3 Col 7 · 100% · link 1/2: two                                         local

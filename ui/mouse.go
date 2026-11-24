@@ -109,8 +109,18 @@ func (m Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case m.floatExp && m.viewMode != ViewConfig:
+		if m.ctxMenu != nil {
+			return m.ctxMenuMouse(msg)
+		}
 		// click outside the overlay closes it; inside, the explorer
 		r := m.overlayRect()
+		// the footer legend: a click presses the item's key
+		if press && msg.Y == r.y+r.h-2 && msg.X > r.x && msg.X < r.x+r.w-1 {
+			if mm, cmd, ok := m.footerClick(msg.X-r.x-1, r.w-2); ok {
+				return mm, cmd
+			}
+			return m, nil
+		}
 		if press && (msg.X < r.x || msg.X >= r.x+r.w || msg.Y < r.y || msg.Y >= r.y+r.h) {
 			m.closeOverlay()
 			return m, m.shapeCmd()
@@ -122,6 +132,22 @@ func (m Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		inner, off := m.explorerFrame()
+		if msg.Button == tea.MouseButtonRight && msg.Action == tea.MouseActionPress {
+			// right-click: select the row, then the context menu
+			sx, sy := msg.X, msg.Y
+			msg.X -= off.x
+			msg.Y -= off.y
+			lm := msg
+			lm.Button = tea.MouseButtonLeft
+			tm, _ := inner.updateExplorerMouse(lm, 0, true)
+			nm := tm.(Model)
+			nm.width, nm.height = m.width, m.height
+			nm.lastClick = clickInfo{}
+			if it, ok := nm.currentItem(); ok && !it.IsFolder && it.Note != nil {
+				nm.ctxMenu = &ctxMenu{x: sx, y: sy}
+			}
+			return nm, nil
+		}
 		msg.X -= off.x
 		msg.Y -= off.y
 		before := m.focusedPane()
@@ -211,6 +237,15 @@ func (m Model) updateExplorerMouse(msg tea.MouseMsg, wheel int, press bool) (tea
 		i := start + row
 		if i >= len(m.items) {
 			return m, nil
+		}
+		// the selected row's inline actions: open · ⇥ right · ⇩ below
+		if i == m.cursor && m.pane == PaneList {
+			_, cw, _, _ := treeColumnWidths(m.width, m.previewHidden)
+			if a := rowActionAt(max(4, cw-1), msg.X-m.centerColX()); a >= 0 {
+				if it, ok := m.currentItem(); ok && it.Note != nil {
+					return m.openItemHow(rowActions[a].how)
+				}
+			}
 		}
 		m.pane = PaneList
 		if m.cursor != i {

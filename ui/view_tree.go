@@ -49,9 +49,12 @@ func (m Model) renderTree() string {
 		colHeight = 1
 	}
 
-	sep := lipgloss.NewStyle().
+	// one separator cell per row (a single-line separator only drew
+	// the first row)
+	sepCell := lipgloss.NewStyle().
 		Foreground(theme.Current.Separator).
 		Render(" │ ")
+	sep := strings.TrimSuffix(strings.Repeat(sepCell+"\n", colHeight), "\n")
 	_ = sepWidth // separator visual width baked into the layout maths
 
 	if leftWidth == 0 && rightWidth == 0 {
@@ -252,6 +255,8 @@ func (m Model) renderParentCol(width, height int) string {
 		name := it.Name
 		if it.IsFolder {
 			name += "/"
+		} else {
+			name = itemKind(it).glyph() + " " + name
 		}
 		prefix := "  "
 		if isCurrent {
@@ -324,9 +329,10 @@ func (m Model) renderCenterCol(width, height int) string {
 		end = len(m.items)
 	}
 
+	dups := dupTitles(m.items)
 	for i := start; i < end; i++ {
 		item := m.items[i]
-		s.WriteString(m.renderCenterRow(item, innerWidth, i == m.cursor))
+		s.WriteString(m.renderCenterRow(item, innerWidth, i == m.cursor, dups[i]))
 		s.WriteByte('\n')
 	}
 
@@ -353,31 +359,41 @@ func (m Model) renderCenterCol(width, height int) string {
 // renderCenterRow returns a single styled row for the active list. The
 // folder/note distinction is carried by both the prefix character and
 // the colour so it survives in monochrome terminals.
-func (m Model) renderCenterRow(item Item, innerWidth int, selected bool) string {
-	const prefixWidth = 4 // " > " or "   ▸/·" + trailing space
+func (m Model) renderCenterRow(item Item, innerWidth int, selected, dup bool) string {
+	const prefixWidth = 4 // " >" + kind glyph + space
 	textWidth := innerWidth - prefixWidth
+	actions := ""
+	if selected && !item.IsFolder && item.Note != nil && m.pane == PaneList && rowActionsShown(innerWidth) {
+		actions, _ = rowActionsText(innerWidth)
+		textWidth -= lipgloss.Width(actions) + 1
+	}
 	if textWidth < 4 {
 		textWidth = 4
 	}
 
 	name := item.Name
+	suffix := ""
 	if item.IsFolder {
 		name = name + "/"
+	} else if dup {
+		suffix = kindSuffix(item)
 	}
-	name = truncate(name, textWidth)
+	name = truncate(name, max(1, textWidth-lipgloss.Width(suffix)))
 
-	var glyph, prefix string
-	switch {
-	case selected:
-		glyph = ">"
-	case item.IsFolder:
-		glyph = "▸"
-	default:
-		glyph = "·"
+	mark := " "
+	if selected {
+		mark = ">"
 	}
-	prefix = " " + glyph + " "
+	glyph := "▸"
+	if !item.IsFolder {
+		glyph = itemKind(item).glyph()
+	}
+	prefix := " " + mark + glyph + " "
 
-	row := prefix + name
+	row := prefix + name + suffix
+	if actions != "" {
+		row = padRight(row, innerWidth+1-lipgloss.Width(actions)) + actions
+	}
 
 	switch {
 	case selected && m.pane != PaneList:
@@ -487,7 +503,7 @@ func (m Model) renderFolderPreview(item Item, width, height, innerWidth int) str
 		if count >= maxPreview {
 			break
 		}
-		name := truncate("· "+n.Title, innerWidth-2)
+		name := truncate(kindOf(n.Path).glyph()+" "+n.Title, innerWidth-2)
 		s.WriteString(lipgloss.NewStyle().
 			Foreground(theme.Current.TextDim).
 			Render("  " + name))
@@ -507,8 +523,9 @@ func (m Model) renderFolderPreview(item Item, width, height, innerWidth int) str
 func (m Model) renderNotePreview(item Item, width, height, innerWidth int) string {
 	var s strings.Builder
 
-	// Title — bold + accent.
-	title := truncate(item.Note.Title, innerWidth)
+	// Title — bold + accent, with the kind glyph.
+	k := itemKind(item)
+	title := truncate(k.glyph()+" "+item.Note.Title, innerWidth)
 	s.WriteString(lipgloss.NewStyle().
 		Foreground(primaryColor).
 		Bold(true).
@@ -554,7 +571,16 @@ func (m Model) renderNotePreview(item Item, width, height, innerWidth int) strin
 	if rows < 1 {
 		rows = 1
 	}
-	lines := strings.Split(m.prose.render(item.Note.Content, innerWidth), "\n")
+	var lines []string
+	switch itemKind(item) {
+	case kindCanvas:
+		// never the raw JSON: the outline
+		lines = renderCanvasPreview(item.Path, innerWidth, 1<<20)
+	case kindKanban:
+		lines = renderBoardPreview(item.Path, innerWidth, rows)
+	default:
+		lines = strings.Split(m.prose.render(item.Note.Content, innerWidth), "\n")
+	}
 	off := clamp(m.previewScroll, 0, max(0, len(lines)-rows))
 	end := min(len(lines), off+rows)
 	for _, line := range lines[off:end] {

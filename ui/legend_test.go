@@ -72,12 +72,14 @@ func TestLegendLineIsFullWidth(t *testing.T) {
 
 func TestLegendFollowsModel(t *testing.T) {
 	m, _ := explorer(t)
+	// the floating explorer's footer carries the legend
+	foot := func(m Model) string { f, _ := m.explorerFooter(m.width - 2); return f }
 	m = keys(t, m, "g")
-	if row := stripAnsi(m.renderLegendRow()); !strings.Contains(row, "gb books") || !strings.Contains(row, "gs sync details") {
+	if row := stripAnsi(foot(m)); !strings.Contains(row, "gb books") || !strings.Contains(row, "gs sync details") {
 		t.Fatalf("which-key row = %q", row)
 	}
 	m = keys(t, m, "esc")
-	if row := stripAnsi(m.renderLegendRow()); !strings.Contains(row, "j k move") {
+	if row := stripAnsi(foot(m)); !strings.Contains(row, "j k move") {
 		t.Fatalf("explorer row = %q", row)
 	}
 }

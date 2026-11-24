@@ -185,7 +185,8 @@ func (m Model) renderPane(p *notePane, w, h int, origin bool) []string {
 	if focused {
 		ts = ts.Foreground(t.Primary)
 	}
-	left := ts.Render(" "+truncate(title, max(4, w-lipgloss.Width(right)-6-notesButtonWidth))) + lipgloss.NewStyle().Foreground(t.Warning).Render(marks)
+	k := kindOf(p.buf.path)
+	left := kindStyle(k).Render(" "+k.glyph()) + ts.Render(" "+truncate(title, max(4, w-lipgloss.Width(right)-8-notesButtonWidth))) + lipgloss.NewStyle().Foreground(t.Warning).Render(marks)
 	if len(p.buf.note.Tags) > 0 && w > 70 {
 		var tags []string
 		for _, tg := range p.buf.note.Tags {

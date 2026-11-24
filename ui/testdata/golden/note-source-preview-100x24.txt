@@ -1,4 +1,4 @@
- ≡ notes  One                                                                          fonte+prévia
+ ≡ notes  ▤ One                                                                        fonte+prévia
  # one                                            │ one
                                                   │
  See [[two]] and [the site](https://example.com). │ See [[two]] and the site https://example.com.
@@ -21,4 +21,4 @@
  ~                                                │
  ~                                                │
  i a o insert   v V ⌃v visual   :w save   :q reader   u ⌃r undo/redo   gf ⏎ follow link   …
- NORMAL  ~/one.md · Ln 3 Col 5 · vista: fonte+prévia                                          local
+ NORMAL  ▤ ~/one.md · Ln 3 Col 5 · vista: fonte+prévia                                        local

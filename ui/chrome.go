@@ -149,7 +149,17 @@ func (m Model) renderLegendRow() string {
 		n := lipgloss.NewStyle().Foreground(mutedColor).Render(fmt.Sprintf("   %d/%d · ⏎ keep · Esc clear", len(m.items), len(m.allItems)))
 		return padVisual(label+val+caret+n, m.width)
 	}
+	if m.floatExp && m.viewMode != ViewConfig && m.overlaySettled() && m.acct == nil && !m.showPalette && !m.showHelp {
+		// the overlay's own footer carries the legend (float_mouse.go)
+		return padVisual("", m.width)
+	}
 	return renderLegendLine(legendFor(m.legendContext(), m.pendingInput()), m.width)
+}
+
+// overlaySettled: the floating explorer is fully open (its footer shows).
+func (m Model) overlaySettled() bool {
+	a, ok := m.mo.get(animOverlay)
+	return !ok || a.value(0, 1) >= 1 || !a.active
 }
 
 func (m Model) modeName() string {
@@ -229,7 +239,7 @@ func (m Model) renderStatusLine() string {
 		if m.ws != nil && m.ws.focus != nil {
 			p := m.ws.focus
 			e := p.buf.eng
-			left = append(left, dim.Render(m.displayRel(p.buf.path)))
+			left = append(left, dim.Render(kindOf(p.buf.path).glyph()+" "+m.displayRel(p.buf.path)))
 			switch p.view {
 			case viewSource, viewSplit:
 				c := e.Cursor()

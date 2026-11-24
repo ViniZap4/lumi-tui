@@ -1,4 +1,4 @@
- ≡ notes  map                                                                                canvas
+ ≡ notes  ◈ map                                                                              canvas
  ▣ Plano                                               │ ideia
    ◇ two.md                                            │
    ¶ ideia                                             │
@@ -21,4 +21,4 @@
                                                        │
                                                        │
  j k Tab node   ⏎ gf open file   ⌃w f in split   gx open link   zv JSON source   - explorer   …
- CANVAS  ~/map.canvas                                                                         local
+ CANVAS  ◈ ~/map.canvas                                                                       local

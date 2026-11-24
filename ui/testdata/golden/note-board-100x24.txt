@@ -1,4 +1,4 @@
- ≡ notes  Board                                                                              quadro
+ ≡ notes  ▥ Board                                                                            quadro
  Todo 2                                  │Done 1
                                          │
  ☐ alpha                                 │☑ gamma
@@ -21,4 +21,4 @@
                                          │
                                          │
  h l column   j k card   H L move ←→   J K move ↑↓   a o new card   ⏎ i edit   x done   …
- BOARD  ~/board.md                                                                            local
+ BOARD  ▥ ~/board.md                                                                          local
