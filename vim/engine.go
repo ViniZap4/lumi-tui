@@ -1,6 +1,7 @@
 package vim
 
 import (
+	"regexp"
 	"strings"
 	"time"
 )
@@ -238,6 +239,9 @@ type Engine struct {
 
 	effects []Effect
 	Now     func() time.Time
+
+	hlPat string
+	hlRe  *regexp.Regexp
 }
 
 type blockInsert struct {
@@ -406,11 +410,14 @@ func (e *Engine) MatchesInLine(l int) [][2]int {
 	if !on || l < 0 || l >= len(e.lines) {
 		return nil
 	}
-	re, err := compilePattern(pat)
-	if err != nil {
-		return nil
+	if e.hlRe == nil || e.hlPat != pat {
+		re, err := compilePattern(pat)
+		if err != nil {
+			return nil
+		}
+		e.hlRe, e.hlPat = re, pat
 	}
-	return runeMatches(re, e.lines[l])
+	return runeMatches(e.hlRe, e.lines[l])
 }
 
 // Feed processes one key and returns the host effects it produced.

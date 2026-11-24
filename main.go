@@ -149,6 +149,9 @@ func main() {
 		final, err := p.Run()
 		// the built-in editor may have changed the cursor shape (DECSCUSR)
 		fmt.Fprint(os.Stdout, vim.ResetCursorShape)
+		if fm, ok := final.(ui.Model); ok {
+			fm.FlushEdits()
+		}
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)

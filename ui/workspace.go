@@ -718,3 +718,18 @@ func layoutHas(sp savedPane, rel string) bool {
 }
 
 func vimPos(line, col int) vim.Pos { return vim.Pos{Line: line, Col: col} }
+
+// FlushEdits saves every unsaved built-in edit (main calls it when the
+// program ends, whatever the exit path). The push happens on the next
+// sync; the file is on disk now.
+func (m Model) FlushEdits() {
+	if m.ws == nil {
+		return
+	}
+	for _, b := range m.ws.bufs {
+		if b.dirty() {
+			m.bookMgr = nil // no background push while exiting
+			m.saveBuffer(b)
+		}
+	}
+}

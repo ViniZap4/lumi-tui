@@ -491,3 +491,23 @@ func TestCursorShapeSequences(t *testing.T) {
 }
 
 var _ = tea.Quit
+
+func TestEscapeSequenceSettingAndFlushOnExit(t *testing.T) {
+	dir := notesVault(t)
+	m := newTreeModel(t, dir)
+	m.cfg.EscapeSequences = []string{"jj"}
+	m.cfg.Autosave = false
+	m = openNamed(t, m, "Two")
+	m = keys(t, m, "i", "g", "g", "I", "x", "j", "j")
+	if m.ws.focus.buf.eng.Mode() != vim.ModeNormal {
+		t.Fatal("jj leaves insert mode")
+	}
+	if !strings.HasPrefix(m.ws.focus.buf.eng.Text(), "x# two") {
+		t.Fatalf("text %q", m.ws.focus.buf.eng.Text())
+	}
+	m.FlushEdits()
+	data, _ := os.ReadFile(filepath.Join(dir, "two.md"))
+	if !strings.Contains(string(data), "\nx# two\n") {
+		t.Fatalf("FlushEdits did not save:\n%s", data)
+	}
+}
