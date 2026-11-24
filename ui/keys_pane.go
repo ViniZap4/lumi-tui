@@ -107,7 +107,7 @@ func (m Model) commonNoteKey(key string) (Model, tea.Cmd, bool) {
 	case "esc":
 		// clears the link focus and the find; there is no "back":
 		// the floating explorer is the navigation (-, <leader>e)
-		p.link, p.find = -1, ""
+		p.link = -1
 		m.statusMsg = ""
 		return m, nil, true
 	case "i", "e":
@@ -439,6 +439,8 @@ func (m Model) exCommand(p *notePane, ef vim.Effect) (Model, tea.Cmd) {
 		m.statusMsg = "nota não encontrada: " + ef.Args
 	case "on", "only":
 		return m, m.onlyPane()
+	case "zoom", "zo":
+		m.toggleZoom()
 	case "reader", "read", "leitura":
 		m.setView(p, viewReader)
 		return m, m.shapeCmd()
@@ -484,6 +486,12 @@ func (m *Model) splitWith(note *domain.Note, how string) tea.Cmd {
 	if p := m.ws.focus; p != cur && p.buf == cur.buf {
 		p.view = cur.view
 		p.cur, p.top, p.scroll = cur.cur, cur.top, cur.scroll
+		if cur.rd != nil {
+			// the new reader pane starts where this one reads
+			d, _ := m.readerDoc(p)
+			d.eng.SetCursor(cur.rd.eng.Cursor())
+			d.eng.Top = cur.rd.eng.Top
+		}
 		m.focusIn(p)
 	}
 	m.saveLayout()
@@ -506,6 +514,8 @@ func (m Model) windowCmd(key string) (Model, tea.Cmd) {
 		return m, m.onlyPane()
 	case "=":
 		m.statusMsg = "painéis igualados"
+	case "z", "ctrl+z":
+		m.toggleZoom()
 	case "w", "ctrl+w":
 		m.cycleFocus(1)
 	case "W":
@@ -599,7 +609,22 @@ func abs(x int) int {
 
 // --- links -----------------------------------------------------------
 
+// linkUnderCursor is the link under the focused cursor: the reader's
+// (or the focused preview's) read-only cursor, else the editor's.
 func (m Model) linkUnderCursor(p *notePane) (noteLink, bool) {
+	var d *readerDoc
+	switch {
+	case p.view == viewReader:
+		d, _ = m.readerDoc(p)
+	case p.view == viewSplit && p.previewFocus:
+		d, _ = m.previewDoc(p)
+	}
+	if d != nil {
+		if i := d.linkAtCursor(); i >= 0 {
+			return d.links[i], true
+		}
+		return noteLink{}, false
+	}
 	c := p.buf.eng.Cursor()
 	return linkAt(findLinks(p.buf.eng.Text()), c.Line, c.Col)
 }
@@ -608,13 +633,8 @@ func (m Model) linkUnderCursor(p *notePane) (noteLink, bool) {
 // editor, the Tab-selected one in the reader.
 func (m Model) focusedLink(p *notePane) (noteLink, bool) {
 	switch p.view {
-	case viewSource, viewSplit:
+	case viewSource, viewSplit, viewReader:
 		return m.linkUnderCursor(p)
-	case viewReader:
-		ls := findLinks(p.buf.eng.Text())
-		if p.link >= 0 && p.link < len(ls) {
-			return ls[p.link], true
-		}
 	}
 	return noteLink{}, false
 }
@@ -634,149 +654,4 @@ func (m Model) followLink(p *notePane, l noteLink, how string) (Model, tea.Cmd) 
 	}
 	m.syncFocusOut()
 	return m, m.openNoteIn(n, how)
-}
-
-// --- reader ----------------------------------------------------------
-
-func (m Model) updateReader(key string) (tea.Model, tea.Cmd) {
-	p := m.ws.focus
-	_, w, h := m.paneRect(p)
-	lines, pos := m.readerLines(p, w)
-	body := max(1, h-1)
-	maxScroll := max(0, len(lines)-body)
-	if m.notePrefix == "g" {
-		switch key {
-		case "g":
-			m.notePrefix = ""
-			p.scroll = 0
-			return m, nil
-		case "f":
-			m.notePrefix = ""
-			if l, ok := m.focusedLink(p); ok {
-				return m.followLink(p, l, "replace")
-			}
-			return m, nil
-		case "x":
-			m.notePrefix = ""
-			if l, ok := m.focusedLink(p); ok && l.external {
-				openURLFn(l.target)
-			}
-			return m, nil
-		}
-	}
-	if mm, cmd, ok := m.commonNoteKey(key); ok {
-		return mm, cmd
-	}
-	links := findLinks(p.buf.eng.Text())
-	switch key {
-	case "j", "down":
-		p.scroll++
-	case "k", "up":
-		p.scroll--
-	case "d", "ctrl+d":
-		p.scroll += body / 2
-	case "u", "ctrl+u":
-		p.scroll -= body / 2
-	case "f", "ctrl+f", "pgdown":
-		p.scroll += body - 1
-	case "b", "ctrl+b", "pgup":
-		p.scroll -= body - 1
-	case "G":
-		p.scroll = maxScroll
-	case "tab", "shift+tab", "n", "N":
-		if len(links) == 0 {
-			m.statusMsg = "sem links nesta nota"
-			return m, nil
-		}
-		d := 1
-		if key == "shift+tab" || key == "N" {
-			d = -1
-		}
-		if key == "n" || key == "N" {
-			if p.find != "" {
-				m.findInReader(p, lines, d)
-				return m, nil
-			}
-		}
-		if p.link < 0 {
-			if d > 0 {
-				p.link = 0
-			} else {
-				p.link = len(links) - 1
-			}
-		} else {
-			p.link = (p.link + d + len(links)) % len(links)
-		}
-		if p.link < len(pos) && pos[p.link].line >= 0 {
-			ln := pos[p.link].line
-			if ln < p.scroll || ln >= p.scroll+body {
-				p.scroll = ln - body/3
-			}
-		}
-		m.statusMsg = fmt.Sprintf("link %d/%d: %s", p.link+1, len(links), truncate(links[p.link].target, 50))
-	case "enter", "l":
-		if l, ok := m.focusedLink(p); ok {
-			return m.followLink(p, l, "replace")
-		}
-		if key == "enter" && len(links) > 0 {
-			m.statusMsg = "Tab escolhe um link"
-		}
-	case "K":
-		if l, ok := m.focusedLink(p); ok {
-			return m.openHover(p, l)
-		}
-		m.statusMsg = "Tab escolhe um link; K mostra o cartão"
-	case "y":
-		_ = systemClipboard.Write(p.buf.eng.Text())
-		m.statusMsg = "texto da nota copiado"
-	case "/":
-		m.showInput, m.inputMode, m.inputValue = true, "find", ""
-	case "h", "backspace":
-		mm, cmd, _ := m.commonNoteKey("q")
-		return mm, cmd
-	}
-	p.scroll = clamp(p.scroll, 0, maxScroll)
-	return m, nil
-}
-
-// findInReader jumps to the next/previous rendered line containing the
-// find text.
-func (m *Model) findInReader(p *notePane, lines []string, d int) {
-	q := strings.ToLower(p.find)
-	n := len(lines)
-	for i := 1; i <= n; i++ {
-		ln := ((p.scroll+d*i)%n + n) % n
-		if strings.Contains(strings.ToLower(stripAnsi(lines[ln])), q) {
-			p.scroll = ln
-			m.statusMsg = "/" + p.find
-			return
-		}
-	}
-	m.statusMsg = "não encontrado: " + p.find
-}
-
-// updatePreviewFocus: the split preview has the keyboard (web parity).
-func (m Model) updatePreviewFocus(key string) (tea.Model, tea.Cmd) {
-	p := m.ws.focus
-	switch key {
-	case "j", "down":
-		p.previewTop++
-	case "k", "up":
-		p.previewTop = max(0, p.previewTop-1)
-	case "d", "ctrl+d":
-		p.previewTop += 10
-	case "u", "ctrl+u":
-		p.previewTop = max(0, p.previewTop-10)
-	case "g":
-		p.previewTop = 0
-	case "G":
-		p.previewTop = 1 << 20
-	case "q", "esc", "ctrl+h", "h":
-		p.previewFocus = false
-	case "ctrl+w":
-		m.winPending = true
-	case "ctrl+c":
-		return m, tea.Quit
-	}
-	return m, nil
 }

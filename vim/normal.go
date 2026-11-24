@@ -319,6 +319,10 @@ func (e *Engine) normalKey(key string) {
 }
 
 func (e *Engine) exec(c command) {
+	if e.Opts.ReadOnly && (isChange(c) || c.name == "u" || c.name == "ctrl+r" || c.name == ".") {
+		e.setErr(errReadOnly)
+		return
+	}
 	if isChange(c) {
 		e.lastChange = recordKeys(c)
 		e.lastCount = c.count

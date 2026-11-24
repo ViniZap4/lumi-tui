@@ -1,7 +1,10 @@
 package ui
 
 import (
+	"fmt"
 	"time"
+
+	"github.com/vinizap/lumi/tui-client/vim"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -239,10 +242,13 @@ func (m Model) updateExplorerMouse(msg tea.MouseMsg, wheel int, press bool) (tea
 	return m, nil
 }
 
-// updateNoteMouse: wheel scrolls the pane under the pointer, a click
-// focuses it (and places the editor cursor), a double-click follows a
-// link; Ctrl-click opens a link in a vertical split, Alt-click in a
-// horizontal one (Shift-click is usually taken by the terminal).
+// updateNoteMouse: the wheel scrolls the pane under the pointer. A
+// click focuses the pane and performs the click in the same press (no
+// dead first click): it places the cursor (editor, reader, preview);
+// on a link in the reader or preview it follows it. A double-click
+// follows a link in the editor. Ctrl-click opens a link in a vertical
+// split, Alt-click in a horizontal one (Shift-click is usually taken
+// by the terminal).
 func (m Model) updateNoteMouse(msg tea.MouseMsg, wheel int, press bool) (tea.Model, tea.Cmd) {
 	if m.ws == nil {
 		return m, nil
@@ -257,16 +263,24 @@ func (m Model) updateNoteMouse(msg tea.MouseMsg, wheel int, press bool) (tea.Mod
 	if hit == nil {
 		return m, nil
 	}
-	if press && hit != m.ws.focus {
-		m.setFocus(hit)
-	}
 	p := hit
-	switch {
-	case wheel != 0:
+	if wheel != 0 {
 		switch p.view {
 		case viewReader:
-			p.scroll = max(0, p.scroll+wheel*3)
+			d, h := m.readerDoc(p)
+			d.scrollBy(wheel*3, h)
+			p.scroll = d.eng.Top
 		case viewSource, viewSplit:
+			if p.view == viewSplit && msg.X > r.x+r.w/2 {
+				d, h := m.previewDoc(p)
+				if p != m.ws.focus || !p.previewFocus {
+					// scrolling the unfocused preview reads it
+					m.setFocus(p)
+					p.previewFocus = true
+				}
+				d.scrollBy(wheel*3, h)
+				return m, nil
+			}
 			if p == m.ws.focus {
 				e := p.buf.eng
 				e.Top = clamp(e.Top+wheel*3, 0, max(0, e.LineCount()-1))
@@ -281,13 +295,20 @@ func (m Model) updateNoteMouse(msg tea.MouseMsg, wheel int, press bool) (tea.Mod
 			p.bcard = max(0, p.bcard+wheel)
 		}
 		return m, nil
-	case !press:
+	}
+	if !press {
 		return m, nil
 	}
 	row := msg.Y - r.y - 1
 	if row < 0 {
+		// the pane header: double-click (or its zoom button) zooms
+		if mm, cmd, ok := m.headerClick(p, r, msg); ok {
+			return mm, cmd
+		}
+		m.setFocus(p)
 		return m, nil
 	}
+	m.setFocus(p)
 	how := "replace"
 	if msg.Ctrl {
 		how = "vsplit"
@@ -297,10 +318,25 @@ func (m Model) updateNoteMouse(msg tea.MouseMsg, wheel int, press bool) (tea.Mod
 	dbl := m.isDoubleClick(msg.X, msg.Y)
 	switch p.view {
 	case viewSource, viewSplit:
+		lw := r.w
+		if p.view == viewSplit {
+			lw = r.w / 2
+			if msg.X > r.x+lw {
+				p.previewFocus = true
+				d, _ := m.previewDoc(p)
+				return m.clickProse(p, d, row, msg.X-(r.x+lw+1)-previewIndent, how)
+			}
+			p.previewFocus = false
+		}
 		e := p.buf.eng
+		gutter := 0
+		if e.Opts.Number || e.Opts.RelativeNumber {
+			gutter = len(fmt.Sprint(e.LineCount())) + 2
+		}
 		line := e.Top + row
 		if line < e.LineCount() {
-			e.SetCursor(vimPos(line, max(0, msg.X-r.x-1)))
+			l := e.Lines()[line]
+			e.SetCursor(vimPos(line, vim.ColForDisplay(l, max(0, msg.X-r.x-1-gutter), e.Opts.TabStop, false)))
 		}
 		if dbl || how != "replace" {
 			if l, ok := m.linkUnderCursor(p); ok {
@@ -308,24 +344,34 @@ func (m Model) updateNoteMouse(msg tea.MouseMsg, wheel int, press bool) (tea.Mod
 			}
 		}
 	case viewReader:
-		_, w, _ := m.paneRect(p)
-		_, pos := m.readerLines(p, w)
-		line := p.scroll + row
-		col := msg.X - r.x - 2
-		for i, lp := range pos {
-			if lp.line == line && col >= lp.col && col < lp.col+lp.w {
-				p.link = i
-				if dbl || how != "replace" {
-					links := findLinks(p.buf.eng.Text())
-					return m.followLink(p, links[i], how)
-				}
-			}
-		}
+		d, _ := m.readerDoc(p)
+		return m.clickProse(p, d, row, msg.X-r.x-readerIndent, how)
 	case viewCanvas:
 		p.crow = row
 		if dbl || how != "replace" {
 			return m.openCanvasRow(p, how)
 		}
 	}
+	return m, nil
+}
+
+// clickProse places the read-only cursor at (row, col) of the visible
+// prose; a click on a link follows it.
+func (m Model) clickProse(p *notePane, d *readerDoc, row, col int, how string) (tea.Model, tea.Cmd) {
+	line := d.eng.Top + row
+	if line >= len(d.plain) || col < 0 {
+		return m, nil
+	}
+	if d.eng.Mode().IsVisual() {
+		d.eng.Feed("esc")
+	}
+	if i := d.linkAt(line, col); i >= 0 {
+		d.eng.SetCursor(vim.Pos{Line: line, Col: colAt(d.plain[line], col)})
+		p.link = i
+		return m.followLink(p, d.links[i], how)
+	}
+	top := d.eng.Top
+	d.eng.SetCursor(vim.Pos{Line: line, Col: colAt(d.plain[line], col)})
+	d.eng.Top = top
 	return m, nil
 }

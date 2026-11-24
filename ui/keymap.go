@@ -662,6 +662,12 @@ func (m Model) runCommand(id string) (tea.Model, tea.Cmd) {
 			m.viewMode = ViewFullNote
 			return m.windowCmd(map[string]string{"vsplit": "v", "hsplit": "s"}[id])
 		}
+	case "zoom":
+		if m.ws != nil && m.ws.focus != nil {
+			m.closeOverlay()
+			m.viewMode = ViewFullNote
+			m.toggleZoom()
+		}
 	case "float":
 		return m.openFloatExplorer()
 	case "layout":

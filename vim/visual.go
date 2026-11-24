@@ -210,7 +210,15 @@ func (e *Engine) visualOp(op string, reg rune, count int) {
 // insert, which records from lastChange.
 func (e *Engine) startRecordingInsertAfter() {}
 
+// visualReadOnly are the visual commands an unmodifiable buffer keeps.
+var visualReadOnly = map[string]bool{"y": true, "Y": true, "o": true, "O": true, "v": true, "V": true,
+	"ctrl+v": true, ":": true, "/": true, "?": true, "esc": true, "ctrl+c": true}
+
 func (e *Engine) visualCommand(k string, reg rune, count int) {
+	if e.Opts.ReadOnly && !visualReadOnly[k] {
+		e.setErr(errReadOnly)
+		return
+	}
 	switch k {
 	case "d", "x", "delete":
 		e.visualOp("d", reg, count)

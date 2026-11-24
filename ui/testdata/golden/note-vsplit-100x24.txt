@@ -1,4 +1,4 @@
- ≡ notes  One                       fonte+prévia │ One                                 fonte+prévia
+ ≡ notes  One                     fonte+prévia ⤢ │ One                               fonte+prévia ⤢
  # one                  │ one                    │ # one                   │ one
                         │                        │                         │
  See [[two]] and [the si│ See [[two]] and the    │ See [[two]] and [the sit│ See [[two]] and the

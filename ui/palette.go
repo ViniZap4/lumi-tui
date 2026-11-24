@@ -46,6 +46,7 @@ var paletteCommands = []paletteEntry{
 	{kind: palCommand, label: "View: kanban board", keys: ":board", id: "view-board"},
 	{kind: palCommand, label: "Split vertically", keys: "⌃w v", id: "vsplit"},
 	{kind: palCommand, label: "Split horizontally", keys: "⌃w s", id: "hsplit"},
+	{kind: palCommand, label: "Zoom pane (toggle)", keys: "⌃w z :zoom", id: "zoom"},
 	{kind: palCommand, label: "Explore notes (floating explorer)", keys: "- :explore", id: "float"},
 	{kind: palCommand, label: "Restore the last pane layout", keys: ":layout", id: "layout"},
 	{kind: palCommand, label: "Accounts and servers (sign in / out)", keys: "ga", id: "accounts"},

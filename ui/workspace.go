@@ -61,13 +61,15 @@ type notePane struct {
 	view paneView
 	cur  vim.Pos // editor cursor while unfocused
 	top  int
-	// reader
+	// reader: the read-only prose engine (reader.go); scroll mirrors
+	// its top line, link the last Tab-selected link
+	rd     *readerDoc
 	scroll int
 	link   int // focused link (-1: none)
-	find   string
+	// source+preview: the preview's read-only prose engine
+	pv *readerDoc
 	// source+preview: the preview has keyboard focus
 	previewFocus bool
-	previewTop   int
 	// board
 	bcol, bcard int
 	binput      string // "", "card", "edit", "column", "filter"
@@ -90,7 +92,10 @@ type workspace struct {
 	root  *layoutNode
 	focus *notePane
 	prev  *notePane
-	bufs  map[string]*noteBuffer
+	// zoom is the pane filling the note area (⌃w z); nil: none. Never
+	// persisted.
+	zoom *notePane
+	bufs map[string]*noteBuffer
 }
 
 func (w *workspace) leaves() []*notePane {
@@ -269,6 +274,7 @@ func (m *Model) splitLeaf(target, p *notePane, dir byte) {
 	if n == nil {
 		return
 	}
+	m.unzoom() // a split shows the layout again
 	leaf := &layoutNode{pane: p}
 	if par := n.parent; par != nil && par.dir == dir {
 		for i, k := range par.kids {
@@ -344,6 +350,7 @@ func (m *Model) setFocus(p *notePane) {
 	if m.ws == nil || p == nil || p == m.ws.focus {
 		return
 	}
+	m.unzoom() // moving to another pane shows the layout again
 	m.syncFocusOut()
 	m.ws.prev = m.ws.focus
 	m.ws.focus = p
@@ -357,6 +364,7 @@ func (m *Model) closePane() tea.Cmd {
 		return nil
 	}
 	p := m.ws.focus
+	m.unzoom()
 	cmd := m.releaseBuffer(p, nil)
 	n := m.ws.nodeOf(p)
 	par := n.parent
@@ -415,7 +423,7 @@ func (m *Model) onlyPane() tea.Cmd {
 		}
 	}
 	m.ws.root = &layoutNode{pane: keep}
-	m.ws.prev = nil
+	m.ws.prev, m.ws.zoom = nil, nil
 	m.saveLayout()
 	return tea.Batch(cmds...)
 }

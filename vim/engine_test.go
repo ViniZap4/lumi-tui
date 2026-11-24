@@ -519,3 +519,47 @@ func TestScrollKeepsCursorVisible(t *testing.T) {
 		t.Fatalf("ctrl-d line %d", e.Cursor().Line)
 	}
 }
+
+func TestReadOnlyEngine(t *testing.T) {
+	o := DefaultOptions()
+	o.ReadOnly = true
+	e := New("alpha beta\ngamma delta\nepsilon", o)
+	clip := &MemClipboard{Text: "keep"}
+	e.Clip = clip
+	for _, k := range []string{"x", "d", "d", "i", "a", "o", "p", "P", "J", "~", "r", "z", "u", ".", "c", "w"} {
+		e.Feed(k)
+		e.Feed("esc")
+	}
+	e.FeedKeys(":s/alpha/X/<CR>:d<CR>:normal! dd<CR>")
+	if got := e.Text(); got != "alpha beta\ngamma delta\nepsilon" {
+		t.Fatalf("read-only text changed: %q", got)
+	}
+	if e.Mode() != ModeNormal {
+		t.Fatalf("mode %v", e.Mode())
+	}
+	if clip.Text != "keep" {
+		t.Fatalf("a refused change reached the clipboard: %q", clip.Text)
+	}
+	if msg, isErr := e.Message(); !isErr || !strings.Contains(msg, "E21") {
+		t.Fatalf("message %q", msg)
+	}
+	// motions, visual and yank still work
+	e.FeedKeys("ggwvey")
+	if r := e.Register('"'); r.Text != "beta" {
+		t.Fatalf("visual yank %q", r.Text)
+	}
+	if clip.Text != "beta" {
+		t.Fatalf("clipboard %q", clip.Text)
+	}
+	e.FeedKeys("jyy")
+	if clip.Text != "gamma delta\n" {
+		t.Fatalf("yy %q", clip.Text)
+	}
+	e.FeedKeys("/eps<CR>")
+	if c := e.Cursor(); c.Line != 2 || c.Col != 0 {
+		t.Fatalf("search cursor %+v", c)
+	}
+	if e.Gen() != 0 {
+		t.Fatalf("gen %d", e.Gen())
+	}
+}

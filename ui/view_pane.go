@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mattn/go-runewidth"
 	"github.com/vinizap/lumi/tui-client/canvas"
 	"github.com/vinizap/lumi/tui-client/image"
 	"github.com/vinizap/lumi/tui-client/theme"
@@ -22,6 +21,10 @@ type rect struct{ x, y, w, h int }
 func (m Model) layoutRects() map[*notePane]rect {
 	out := map[*notePane]rect{}
 	if m.ws == nil || m.ws.root == nil {
+		return out
+	}
+	if z := m.zoomed(); z != nil {
+		out[z] = rect{0, 0, m.width, m.contentHeight()}
 		return out
 	}
 	var place func(n *layoutNode, r rect)
@@ -92,7 +95,20 @@ func (m Model) renderWorkspace() string {
 	if m.ws == nil || m.ws.root == nil {
 		return ""
 	}
-	lines := m.renderNode(m.ws.root, rect{0, 0, m.width, m.contentHeight()})
+	full := rect{0, 0, m.width, m.contentHeight()}
+	if zp, zr, ok := m.zoomFrame(); ok {
+		// the zoomed pane grows over (or shrinks back into) the layout
+		z := m.ws.zoom
+		m.ws.zoom = nil
+		base := strings.Join(m.renderNode(m.ws.root, full), "\n")
+		m.ws.zoom = z
+		box := strings.Join(m.renderPane(zp, zr.w, zr.h, zr.x == 0 && zr.y == 0), "\n")
+		return overlayBox(base, box, zr.x, zr.y, m.width)
+	}
+	if z := m.zoomed(); z != nil {
+		return strings.Join(m.renderPane(z, full.w, full.h, true), "\n")
+	}
+	lines := m.renderNode(m.ws.root, full)
 	return strings.Join(lines, "\n")
 }
 
@@ -177,6 +193,12 @@ func (m Model) renderPane(p *notePane, w, h int, origin bool) []string {
 		}
 		left += "  " + lipgloss.NewStyle().Foreground(t.Accent).Render(truncate(strings.Join(tags, " "), w/4))
 	}
+	if m.zoomed() == p {
+		right = lipgloss.NewStyle().Foreground(t.Accent).Bold(true).Render("zoom ") + right
+	}
+	if m.zoomButtonShown(p) && w > 30 {
+		right += m.renderZoomButton(p)
+	}
 	btn := ""
 	if origin && w > notesButtonWidth+12 {
 		btn = m.renderNotesButton()
@@ -221,43 +243,6 @@ type linkPos struct{ line, col, w int }
 
 func readerWidth(w int) int { return max(20, min(w-4, 100)) }
 
-// readerLines renders the note as prose and finds where each link of
-// the source landed (for Tab focus and highlighting).
-func (m Model) readerLines(p *notePane, w int) ([]string, []linkPos) {
-	body := p.buf.eng.Text()
-	md, imgs := imagePlaceholders(body, p.buf.path)
-	out := strings.Split(strings.TrimRight(m.prose.render(md, readerWidth(w)), "\n"), "\n")
-	if len(imgs) > 0 {
-		out = expandImages(out, imgs, readerWidth(w))
-	}
-	links := findLinks(body)
-	pos := make([]linkPos, len(links))
-	plain := make([][]rune, len(out))
-	for i, l := range out {
-		plain[i] = []rune(stripAnsi(l))
-	}
-	line, col := 0, 0
-	for i, l := range links {
-		pos[i] = linkPos{line: -1}
-		needle := []rune(strings.TrimSpace(l.text))
-		if len(needle) == 0 {
-			continue
-		}
-		for ln := line; ln < len(plain); ln++ {
-			start := 0
-			if ln == line {
-				start = col
-			}
-			if idx := runeIndex(plain[ln], needle, start); idx >= 0 {
-				pos[i] = linkPos{line: ln, col: runewidth.StringWidth(string(plain[ln][:idx])), w: runewidth.StringWidth(string(needle))}
-				line, col = ln, idx+len(needle)
-				break
-			}
-		}
-	}
-	return out, pos
-}
-
 func runeIndex(hay, needle []rune, from int) int {
 	for i := from; i+len(needle) <= len(hay); i++ {
 		match := true
@@ -274,48 +259,29 @@ func runeIndex(hay, needle []rune, from int) int {
 	return -1
 }
 
+// renderReader draws the reader: the prose with its read-only cursor.
 func (m Model) renderReader(p *notePane, w, h int) []string {
-	lines, pos := m.readerLines(p, w)
-	p.scroll = clamp(p.scroll, 0, max(0, len(lines)-h))
-	end := min(len(lines), p.scroll+h)
-	view := append([]string(nil), lines[p.scroll:end]...)
-	if p.link >= 0 && p.link < len(pos) && pos[p.link].line >= p.scroll && pos[p.link].line < end {
-		lp := pos[p.link]
-		i := lp.line - p.scroll
-		l := view[i]
-		hl := lipgloss.NewStyle().Reverse(true).Foreground(theme.Current.Accent).Render(stripAnsi(cutVisual(l, lp.col, lp.col+lp.w)))
-		view[i] = cutVisual(l, 0, lp.col) + "\x1b[0m" + hl + cutVisual(l, lp.col+lp.w, 1<<20)
-	}
-	if p.find != "" {
-		q := strings.ToLower(p.find)
-		for i, l := range view {
-			if strings.Contains(strings.ToLower(stripAnsi(l)), q) {
-				view[i] = lipgloss.NewStyle().Foreground(theme.Current.Warning).Render("▌") + l
-			}
-		}
-	}
-	for i := range view {
-		view[i] = "  " + view[i]
-	}
-	return view
+	d, _ := m.readerDoc(p)
+	out := m.renderProse(d, h, readerIndent, m.ws.focus == p)
+	p.scroll = d.eng.Top
+	return out
 }
 
-// renderPreview is the rendered side of source+preview.
+// renderPreview is the rendered side of source+preview. Unfocused it
+// follows the editor cursor (proportional scroll sync); focused it is
+// a reader with its own cursor.
 func (m Model) renderPreview(p *notePane, w, h int) []string {
-	body := p.buf.eng.Text()
-	lines := strings.Split(strings.TrimRight(m.prose.render(body, max(10, w-2)), "\n"), "\n")
+	d, _ := m.previewDoc(p)
 	if !p.previewFocus {
-		// follow the editor cursor (proportional scroll sync)
 		e := p.buf.eng
-		p.previewTop = e.Cursor().Line*len(lines)/max(1, e.LineCount()) - h/3
+		n := len(d.lines)
+		top := clamp(e.Cursor().Line*n/max(1, e.LineCount())-h/3, 0, max(0, n-h))
+		d.eng.Top = top
+		if c := d.eng.Cursor(); c.Line < top || c.Line >= top+h {
+			d.eng.SetCursor(vim.Pos{Line: top})
+		}
 	}
-	p.previewTop = clamp(p.previewTop, 0, max(0, len(lines)-h))
-	end := min(len(lines), p.previewTop+h)
-	out := make([]string, 0, h)
-	for _, l := range lines[p.previewTop:end] {
-		out = append(out, " "+l)
-	}
-	return out
+	return m.renderProse(d, h, previewIndent, m.ws.focus == p && p.previewFocus)
 }
 
 // --- editor ----------------------------------------------------------

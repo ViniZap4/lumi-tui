@@ -70,13 +70,16 @@ func (m Model) submitInput(mode, value string) (tea.Model, tea.Cmd) {
 	switch mode {
 	case "find":
 		if m.ws != nil && m.ws.focus != nil {
-			p := m.ws.focus
-			p.find = strings.TrimSpace(value)
-			if p.find != "" {
-				_, w, _ := m.paneRect(p)
-				lines, _ := m.readerLines(p, w)
-				p.scroll--
-				m.findInReader(p, lines, 1)
+			// the reader's own search (moves the cursor, n / N repeat)
+			if p := m.ws.focus; p.view == viewReader && strings.TrimSpace(value) != "" {
+				d, h := m.readerDoc(p)
+				d.eng.Height = h
+				d.eng.Feed("/")
+				for _, r := range value {
+					d.eng.Feed(string(r))
+				}
+				d.eng.Feed("enter")
+				p.scroll = d.eng.Top
 			}
 		}
 		return m, nil

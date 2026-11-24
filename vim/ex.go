@@ -276,6 +276,10 @@ func (e *Engine) execEx(line string) {
 		e.depth--
 		return
 	}
+	if e.Opts.ReadOnly && exChanges(name, rr) {
+		e.setErr(errReadOnly)
+		return
+	}
 	// `:s/a/b/` — the separator follows the name directly
 	if rr[0] == 's' && (len(rr) == 1 || (!unicode.IsLetter(rr[1]) && !unicode.IsDigit(rr[1]) && rr[1] != ' ' && rr[1] != '!')) {
 		e.exSubstitute(l1, l2, string(rr[1:]))
@@ -649,4 +653,17 @@ func expandRep(s string, m []int, rep string) string {
 		write(string(r))
 	}
 	return b.String()
+}
+
+// exChanges: the ex command edits the buffer (refused when read-only).
+func exChanges(name string, rr []rune) bool {
+	if rr[0] == 's' && (len(rr) == 1 || (!unicode.IsLetter(rr[1]) && !unicode.IsDigit(rr[1]) && rr[1] != ' ' && rr[1] != '!')) {
+		return true
+	}
+	switch name {
+	case "s", "substitute", "&", "&&", "d", "de", "del", "delete", ">", "<", "j", "join",
+		"u", "un", "undo", "red", "redo", "sor", "sort":
+		return true
+	}
+	return false
 }

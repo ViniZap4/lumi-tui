@@ -192,6 +192,10 @@ func scrollInputs() []struct{ name, seq string } {
 	for i := 0; i < 6; i++ {
 		in = append(in, struct{ name, seq string }{"j", "j"})
 	}
+	for i := 0; i < 4; i++ {
+		// ⌃e scrolls one line: every row changes
+		in = append(in, struct{ name, seq string }{"ctrl+e", "\x05"})
+	}
 	for i := 0; i < 3; i++ {
 		in = append(in, struct{ name, seq string }{"ctrl+d", "\x04"})
 	}

@@ -86,7 +86,7 @@ func (m Model) legendContext() LegendContext {
 			return CtxCanvas
 		case viewSource, viewSplit:
 			if p.view == viewSplit && p.previewFocus {
-				return CtxSplitPre
+				return proseCtx(m.focusEngine(), CtxSplitPre)
 			}
 			switch e := p.buf.eng; {
 			case e.Mode() == vim.ModeInsert || e.Mode() == vim.ModeReplace:
@@ -98,7 +98,7 @@ func (m Model) legendContext() LegendContext {
 			}
 			return CtxEditor
 		}
-		return CtxReader
+		return proseCtx(m.focusEngine(), CtxReader)
 	}
 	return CtxHome
 }
@@ -140,7 +140,7 @@ func (m Model) renderLegendRow() string {
 		}
 		return padVisual(label+val+caret+hint, m.width)
 	case m.legendContext() == CtxCmdline:
-		kind, text := m.ws.focus.buf.eng.Cmdline()
+		kind, text := m.focusEngine().Cmdline()
 		return padVisual(lipgloss.NewStyle().Foreground(t.Primary).Bold(true).Render(" "+string(kind))+
 			lipgloss.NewStyle().Foreground(t.Text).Render(text)+caret, m.width)
 	case m.filterTyping:
@@ -173,8 +173,8 @@ func (m Model) modeName() string {
 	case CtxHome:
 		return "HOME"
 	case CtxVisual, CtxEditor, CtxInsert, CtxCmdline:
-		if m.ws != nil && m.ws.focus != nil {
-			return m.ws.focus.buf.eng.Mode().String()
+		if e := m.focusEngine(); e != nil {
+			return e.Mode().String()
 		}
 		return "VISUAL"
 	case CtxBoard:
@@ -235,13 +235,13 @@ func (m Model) renderStatusLine() string {
 				c := e.Cursor()
 				left = append(left, dim.Render(fmt.Sprintf("Ln %d Col %d", c.Line+1, c.Col+1)))
 			case viewReader:
-				_, w, h := m.paneRect(p)
-				lines, _ := m.readerLines(p, w)
+				d, h := m.readerDoc(p)
+				c := d.eng.Cursor()
 				pct := 100
-				if n := len(lines) - (h - 1); n > 0 {
-					pct = min(100, p.scroll*100/n)
+				if n := len(d.lines) - h; n > 0 {
+					pct = min(100, d.eng.Top*100/n)
 				}
-				left = append(left, dim.Render(fmt.Sprintf("%d%%", pct)))
+				left = append(left, dim.Render(fmt.Sprintf("Ln %d Col %d · %d%%", c.Line+1, c.Col+1, pct)))
 			}
 			if p.buf.dirty() {
 				left = append(left, lipgloss.NewStyle().Foreground(t.Warning).Render("não salvo"))
@@ -251,6 +251,12 @@ func (m Model) renderStatusLine() string {
 			}
 			if n := len(m.ws.leaves()); n > 1 {
 				left = append(left, dim.Render(fmt.Sprintf("%d painéis", n)))
+			}
+			if m.zoomed() != nil {
+				left = append(left, lipgloss.NewStyle().Foreground(t.Accent).Bold(true).Render("zoom"))
+			}
+			if fe := m.focusEngine(); fe != nil && fe != e {
+				e = fe
 			}
 			if msg, isErr := e.Message(); msg != "" && m.statusMsg == "" {
 				st := lipgloss.NewStyle().Foreground(t.Info)
@@ -275,8 +281,8 @@ func (m Model) renderStatusLine() string {
 		if m.winPending {
 			pend = "⌃w"
 		}
-		if v := m.ws.focus.view; v == viewSource || v == viewSplit {
-			pend += m.ws.focus.buf.eng.Pending()
+		if e := m.focusEngine(); e != nil {
+			pend += e.Pending()
 		}
 		if pend != "" {
 			right = append(right, lipgloss.NewStyle().Foreground(t.Warning).Bold(true).Render(pend))
@@ -391,4 +397,41 @@ func (m Model) overlayCenter(base, box string, top bool) string {
 		y = min(y, 2)
 	}
 	return overlayBox(base, box, x, y, m.width)
+}
+
+// focusEngine is the engine that takes the focused pane's keys: the
+// editor's, or the read-only prose engine of the reader / focused
+// preview. nil outside the notes workspace and for board / canvas.
+func (m Model) focusEngine() *vim.Engine {
+	if m.viewMode != ViewFullNote || m.ws == nil || m.ws.focus == nil {
+		return nil
+	}
+	p := m.ws.focus
+	switch p.view {
+	case viewReader:
+		d, _ := m.readerDoc(p)
+		return d.eng
+	case viewSplit:
+		if p.previewFocus {
+			d, _ := m.previewDoc(p)
+			return d.eng
+		}
+		return p.buf.eng
+	case viewSource:
+		return p.buf.eng
+	}
+	return nil
+}
+
+// proseCtx is the legend context of a read-only prose engine.
+func proseCtx(e *vim.Engine, normal LegendContext) LegendContext {
+	switch {
+	case e == nil:
+		return normal
+	case e.Mode() == vim.ModeCmdline:
+		return CtxCmdline
+	case e.Mode().IsVisual():
+		return CtxReadVisual
+	}
+	return normal
 }

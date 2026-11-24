@@ -20,5 +20,5 @@
 
 
 
- j k scroll   d u half page   gg G top/end   i e edit   E other editor   - explorer   ⏎ follow   …
- READ  ~/one.md · 100% · link 1/2: two                                                        local
+ h j k l cursor   v V ⌃v select   y yy copy   ⏎ gf follow link   Tab next link   K link card   …
+ READ  ~/one.md · Ln 3 Col 7 · 100% · link 1/2: two                                           local

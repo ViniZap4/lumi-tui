@@ -21,4 +21,4 @@
 
 
  ⏎ open   ⌃w f open in split   j k scroll   Esc close
- LINK  ~/one.md · 100%                                                                        local
+ LINK  ~/one.md · Ln 3 Col 7 · 100%                                                           local

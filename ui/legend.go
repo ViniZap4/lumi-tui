@@ -41,6 +41,8 @@ const (
 	CtxHover    LegendContext = "hover"
 	CtxAccounts LegendContext = "accounts"
 	CtxSplitPre LegendContext = "splitpreview"
+	// CtxReadVisual: a visual selection in the reader / preview.
+	CtxReadVisual LegendContext = "readvisual"
 )
 
 var legendNoteG = []LegendItem{
@@ -52,7 +54,7 @@ var legendNoteZ = []LegendItem{{"zv", "next view"}}
 // legendWindow is the Ctrl-w which-key list (SPEC-PARTE2 §3).
 var legendWindow = []LegendItem{
 	{"v", "vertical split"}, {"s", "horizontal split"}, {"q", "close pane"}, {"o", "only this"},
-	{"h j k l", "move"}, {"w p", "next / previous"}, {"f F", "link in split"}, {"=", "equalise"},
+	{"h j k l", "move"}, {"w p", "next / previous"}, {"f F", "link in split"}, {"z", "zoom"}, {"=", "equalise"},
 }
 
 // LegendItem is one "keys label" pair.
@@ -132,7 +134,10 @@ func legendFor(ctx LegendContext, pending string) []LegendItem {
 	case CtxAccounts:
 		return []LegendItem{{"a", "sign in"}, {"⏎", "sign in again"}, {"s", "sign out"}, {"d D", "remove account/server"}, {"w", "web address"}, {"Esc", "back"}}
 	case CtxSplitPre:
-		return []LegendItem{{"j k", "scroll"}, {"d u", "half page"}, {"g G", "top/end"}, {"q Esc ⌃h", "back to editor"}}
+		return []LegendItem{
+			{"h j k l", "cursor"}, {"w b e", "word"}, {"v V", "select"}, {"y yy", "copy"}, {"⏎ gf", "follow link"},
+			{"Tab", "next link"}, {"/ n", "search"}, {"q Esc ⌃h", "back to editor"},
+		}
 	case CtxParent:
 		return []LegendItem{
 			{"j k", "move"}, {"l ⏎", "enter"}, {"h", "up"}, {"⌃l Esc", "list"},
@@ -145,11 +150,14 @@ func legendFor(ctx LegendContext, pending string) []LegendItem {
 		}
 	case CtxReader:
 		return []LegendItem{
-			{"j k", "scroll"}, {"d u", "half page"}, {"gg G", "top/end"}, {"i e", "edit"}, {"E", "other editor"},
-			{"-", "explorer"}, {"Tab", "next link"}, {"⏎", "follow"}, {"K", "link card"}, {"q", "close"},
-			{"zv", "next view"}, {"⌃w", "panes"}, {"y", "copy"}, {"/", "find"},
-			{"space", "commands"}, {"?", "keys"}, {"[ ]", "prev/next book"}, {",", "settings"},
+			{"h j k l", "cursor"}, {"v V ⌃v", "select"}, {"y yy", "copy"}, {"⏎ gf", "follow link"},
+			{"Tab", "next link"}, {"K", "link card"}, {"x", "toggle task"}, {"i", "edit"}, {"-", "explorer"},
+			{"/ n", "search"}, {"w b e", "word"}, {"gg G", "top/end"}, {"d u", "half page"}, {"q", "close"},
+			{"⌃w f F", "link in split"}, {"gx", "open URL"}, {"E", "other editor"}, {"zv", "next view"},
+			{"⌃w", "panes"}, {"space", "commands"}, {"?", "keys"}, {"[ ]", "prev/next book"}, {",", "settings"},
 		}
+	case CtxReadVisual:
+		return []LegendItem{{"y", "copy"}, {"h j k l", "extend"}, {"w b e", "word"}, {"o", "other end"}, {"Esc", "cancel"}}
 	case CtxVisual:
 		return []LegendItem{{"y", "copy"}, {"h j k l", "extend"}, {"w b e", "word"}, {"Esc", "normal"}}
 	case CtxFilter:

@@ -121,7 +121,15 @@ type Options struct {
 	// ExAliases come from `map :W :write`.
 	ExAliases map[string]string
 	Leader    string
+	// ReadOnly makes the buffer unmodifiable (the prose reader): motions,
+	// search, visual selection and yanks work; every change is refused
+	// with E21 and never reaches the text, the registers or the
+	// clipboard.
+	ReadOnly bool
 }
+
+// errReadOnly is vim's message for a change in an unmodifiable buffer.
+const errReadOnly = "E21: Cannot make changes, 'modifiable' is off"
 
 // DefaultOptions are the engine defaults (web: tab 4, wrap on).
 func DefaultOptions() Options {
@@ -423,11 +431,36 @@ func (e *Engine) MatchesInLine(l int) [][2]int {
 // Feed processes one key and returns the host effects it produced.
 func (e *Engine) Feed(key string) []Effect {
 	e.effects = nil
-	e.feedMapped(key)
+	if e.Opts.ReadOnly {
+		e.feedReadOnly(key)
+	} else {
+		e.feedMapped(key)
+	}
 	e.ensureVisible()
 	out := e.effects
 	e.effects = nil
 	return out
+}
+
+// feedReadOnly runs key with a safety net: whatever path a change
+// takes (ex commands, macros, mappings), the text and the mode are put
+// back as they were.
+func (e *Engine) feedReadOnly(key string) {
+	lines, gen := e.lines, e.gen
+	e.lines = cloneLines(lines)
+	e.feedMapped(key)
+	if e.gen != gen || !sameLines(lines, e.lines) {
+		e.lines, e.gen = lines, gen
+		e.undo, e.redo = nil, nil
+		e.setErr(errReadOnly)
+	} else {
+		e.lines = lines
+	}
+	if e.mode == ModeInsert || e.mode == ModeReplace {
+		e.mode = ModeNormal
+		e.setErr(errReadOnly)
+	}
+	e.clampCursor(false)
 }
 
 // FeedKeys feeds keys in vim notation (tests, mappings).

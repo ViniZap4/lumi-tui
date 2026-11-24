@@ -30,7 +30,7 @@ func TestLegendWhichKey(t *testing.T) {
 
 func TestLegendContexts(t *testing.T) {
 	first := map[LegendContext]string{
-		CtxFloat: "⏎", CtxReader: "j k", CtxPreview: "j k", CtxParent: "j k",
+		CtxFloat: "⏎", CtxReader: "h j k l", CtxReadVisual: "y", CtxSplitPre: "h j k l", CtxPreview: "j k", CtxParent: "j k",
 		CtxPrompt: "⏎", CtxConfirm: "y ⏎", CtxPalette: "↑ ↓ ⌃n ⌃p", CtxBooks: "j k",
 		CtxSettings: "j k", CtxHelp: "j k", CtxVisual: "y", CtxHome: "-",
 	}

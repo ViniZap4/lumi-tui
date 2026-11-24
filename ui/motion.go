@@ -72,6 +72,7 @@ const (
 	animPill                    // mode pill 0 old width … 1 new width
 	animPulse                   // remote change 1 … 0
 	animHover                   // K card 0 … 1 grown
+	animZoom                    // zoomed pane 0 in its rect … 1 full area
 	animCount
 )
 
@@ -84,6 +85,9 @@ type motion struct {
 
 	// splitPane is the pane sliding open (nil when none).
 	splitPane *notePane
+	// zoomPane grows from zoomFrom to the note area (or back).
+	zoomPane *notePane
+	zoomFrom rect
 	// revealDir is the folder whose rows last staggered in.
 	revealDir string
 	// pillFrom is the label the pill morphs away from; pillMode the
@@ -193,6 +197,7 @@ func (mo *motion) settle() {
 		a.pos, a.vel, a.active = a.target, 0, false
 	}
 	mo.splitPane = nil
+	mo.zoomPane = nil
 }
 
 // kick schedules the next frame when something moves and no frame is
@@ -226,6 +231,9 @@ func (mo *motion) frame() tea.Cmd {
 	}
 	if !mo.a[animSplit].active {
 		mo.splitPane = nil
+	}
+	if !mo.a[animZoom].active {
+		mo.zoomPane = nil
 	}
 	if mo.syncing {
 		if sp {
