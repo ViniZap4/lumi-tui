@@ -166,8 +166,10 @@ func LoadFrom(path string) (*File, error) {
 		keep := tf.Tokens[:0]
 		for _, e := range tf.Tokens {
 			row := findIn(accs, e.Server, e.Username)
+			// Same rule as Lumi.app: a session whose sign-in second is not
+			// after signed_out_at is over (a same-second sign-in loses).
 			stale := row == nil ||
-				(!row.SignedOutAt.IsZero() && e.SignedInAt.Before(row.SignedOutAt))
+				(!row.SignedOutAt.IsZero() && !utcSeconds(e.SignedInAt).After(row.SignedOutAt))
 			if stale {
 				f.Dropped = append(f.Dropped, Account{Server: e.Server, Username: e.Username, Token: e.Token})
 				changed = true

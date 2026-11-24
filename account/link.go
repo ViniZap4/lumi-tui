@@ -310,7 +310,11 @@ func ServeLinkRequests(ctx context.Context, ch *LinkChannel, f *File, newClient 
 			}
 			c.SetToken(a.Token)
 			cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			link, err := c.IssueDeviceLink(cctx, r.Challenge, "lumi TUI")
+			label := r.Label
+			if label == "" {
+				label = "Lumi.app"
+			}
+			link, err := c.IssueDeviceLink(cctx, r.Challenge, label)
 			cancel()
 			switch {
 			case errors.Is(err, ErrUnauthorized):
