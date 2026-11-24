@@ -18,20 +18,25 @@ import (
 	"github.com/vinizap/lumi/tui-client/theme"
 )
 
-// Accounts and servers inside the TUI (SPEC-PARTE2 §9, SPEC-LIVROS §5),
+// Accounts and servers inside the TUI (SPEC-PARTE2 §9, SPEC-LIVROS §5, §8),
 // `ga`: one card with the hierarchy servidores → contas → livros. Each
 // server shows whether it answers (GET /api/info: name, version,
-// latency); each account its display name, user, session expiry and
-// book count; each book whether it has a folder here. Actions are keys
-// and clickable buttons: entrar, sair, remover, adicionar servidor,
-// endereço web, clonar livro / ligar pasta.
+// latency); each account its display name, user, session state (with
+// the device link to Lumi.app: vinculada ao app / aguardando aprovação
+// no app), expiry and book count; each book whether it has a folder
+// here. Actions are keys and clickable buttons: entrar, vincular ao app
+// (v), sair daqui (s) / sair neste Mac (S), remover, adicionar servidor,
+// endereço web, clonar livro / ligar pasta (c / L, as in the books
+// level).
 //
-// The sign-in form is its own focused card: server URL validated and
-// checked live (reachability + server name/version), username, masked
-// password with show/hide, inline errors, a spinner while it works and a
-// short success beat before it lands on the account (or continues the
-// book flow that asked for it). Tokens go to accounts.yaml (0600) and
-// are never rendered; the password lives only in the form until sent.
+// The account list is shared with Lumi.app (accounts.yaml v3, no
+// secrets); this TUI's tokens live in tokens.yaml (0600) and are never
+// rendered. The sign-in form is its own focused card: server URL
+// validated and checked live (reachability + server name/version),
+// username, masked password with show/hide, inline errors, a spinner
+// while it works and a short success beat before it lands on the account
+// (or continues the book flow that asked for it). The password lives
+// only in the form until sent.
 
 type acctRowKind int
 
@@ -57,7 +62,7 @@ type accountsScreen struct {
 	rows    []acctRow
 	cursor  int
 	form    *loginForm
-	confirm string // "signout", "remove", "server"
+	confirm string // "signout", "signoutmac", "remove", "server"
 	origin  *string
 	busy    bool
 	err     string
@@ -70,6 +75,13 @@ type accountsScreen struct {
 	// needCheck: the servers have not been checked since opening (the
 	// Update wrapper fires the checks).
 	needCheck bool
+	// Device link with Lumi.app (SPEC-LIVROS §8.4), refreshed on reload:
+	// whether the app runs, and the accounts with a request of ours
+	// still waiting for its approval.
+	appUp    bool
+	awaiting map[string]bool
+	// linkCancel stops a running `v` request (Esc).
+	linkCancel context.CancelFunc
 }
 
 type afterLogin struct {
@@ -118,6 +130,9 @@ type loginDoneMsg struct {
 	form *loginForm
 	acct account.Account
 	err  error
+	// link: the session came from Lumi.app (v), already saved by
+	// account.LinkAndSave.
+	link bool
 }
 
 type loginSettledMsg struct{ form *loginForm }
@@ -147,6 +162,72 @@ var serverCheckDelay = 400 * time.Millisecond
 // loopback).
 var infoClient = &http.Client{Timeout: 5 * time.Second}
 
+// linkTimeout bounds waiting for Lumi.app to approve a device link.
+var linkTimeout = 2 * time.Minute
+
+// linkPoll is how often a device link checks for the app's answer (0:
+// the account package default; tests shorten it).
+var linkPoll time.Duration
+
+// linkClient builds the HTTP client used to redeem a device link (nil:
+// account.NewClient; tests inject one that accepts loopback).
+var linkClient func(string) (*account.Client, error)
+
+// AccountsChangedMsg reports that another process (Lumi.app, another
+// TUI) changed the shared account registry or this TUI's sessions. Sent
+// by the account sync loop in package main.
+type AccountsChangedMsg struct{ Toast string }
+
+func (m Model) onAccountsChanged(msg AccountsChangedMsg) (tea.Model, tea.Cmd) {
+	if m.acct != nil && !m.acct.busy && m.acct.form == nil {
+		m.reloadAccounts()
+	}
+	if msg.Toast != "" {
+		return m, m.showToast(msg.Toast, ToastInfo, 4*time.Second)
+	}
+	return m, nil
+}
+
+// appAlive reports whether Lumi.app is running on this machine.
+func appAlive() bool {
+	ch, err := account.NewLinkChannel()
+	return err == nil && ch.PeerAlive(account.LinkClientApple)
+}
+
+// refreshLinkState reads the link channel: is the app up, which of our
+// requests wait for its approval.
+func (s *accountsScreen) refreshLinkState() {
+	s.appUp, s.awaiting = false, map[string]bool{}
+	ch, err := account.NewLinkChannel()
+	if err != nil {
+		return
+	}
+	s.appUp = ch.PeerAlive(account.LinkClientApple)
+	for _, r := range ch.Outgoing() {
+		s.awaiting[linkKey(r.Server, r.Username)] = true
+	}
+}
+
+func linkKey(server, user string) string {
+	if u, err := account.NormalizeServerURL(server); err == nil {
+		server = u
+	}
+	return server + "#" + strings.ToLower(strings.TrimSpace(user))
+}
+
+// linkState is the account's device-link state with Lumi.app: "vinculada
+// ao app" (this TUI's session is linked to the app's), "aguardando
+// aprovação no app" (a request of ours is pending), or "".
+func (s *accountsScreen) linkState(a account.Account) string {
+	switch {
+	case a.Token != "" && a.LinkedApp:
+		return "vinculada ao app"
+	case a.Token == "" && s.awaiting[linkKey(a.Server, a.Username)]:
+		return "aguardando aprovação no app"
+	}
+	return ""
+}
+
 func (m *Model) openAccounts() {
 	m.acct = &accountsScreen{servers: map[string]*serverStatus{}, needCheck: true}
 	m.reloadAccounts()
@@ -173,6 +254,7 @@ func (m *Model) reloadAccounts() {
 	} else {
 		s.err = "accounts.yaml: " + err.Error()
 	}
+	s.refreshLinkState()
 	s.rows = m.buildAcctRows()
 	s.cursor = clamp(s.cursor, 0, max(0, len(s.rows)-1))
 }
@@ -408,8 +490,14 @@ func (m Model) updateAccounts(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	s := m.acct
 	key := msg.String()
 	if s.busy {
-		if key == "ctrl+c" {
+		switch key {
+		case "ctrl+c":
 			return m, tea.Quit
+		case "esc":
+			if s.linkCancel != nil {
+				s.linkCancel()
+				s.linkCancel = nil
+			}
 		}
 		return m, nil
 	}
@@ -439,6 +527,13 @@ func (m Model) updateAccounts(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				s.info, s.err = "endereço web salvo", ""
 				m.cfg = cfg
+				// Shared with Lumi.app through the registry (web_origin).
+				if f, err := account.Load(); err == nil && !f.ReadOnly {
+					for _, x := range f.ForServer(a.server) {
+						x.WebOrigin = strings.TrimRight(v, "/")
+					}
+					_ = f.Save()
+				}
 			}
 		default:
 			if v, ok := editLine(*s.origin, msg); ok {
@@ -504,6 +599,14 @@ func (m Model) updateAccounts(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "s":
 		if ok && r.kind == rowAccount && r.known && r.acct.Token != "" {
 			s.confirm = "signout"
+		}
+	case "S":
+		if ok && r.kind == rowAccount && r.known {
+			s.confirm = "signoutmac"
+		}
+	case "v":
+		if ok && r.kind == rowAccount && r.known && r.acct.Token == "" {
+			return m.startAppLink(r.acct)
 		}
 	case "d", "x":
 		if ok && r.kind == rowAccount && r.known {
@@ -645,6 +748,9 @@ func (m Model) submitLogin() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) onLoginDone(msg loginDoneMsg) (tea.Model, tea.Cmd) {
+	if msg.link {
+		return m.onAppLinkDone(msg)
+	}
 	if m.acct == nil {
 		m.openAccounts()
 	}
@@ -669,6 +775,7 @@ func (m Model) onLoginDone(msg loginDoneMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	file.Upsert(msg.acct)
+	file.SetLinkOptOut(msg.acct.Server, msg.acct.Username, false)
 	if err := file.Save(); err != nil {
 		f.err = "accounts.yaml: " + err.Error()
 		return m, nil
@@ -730,6 +837,16 @@ func (m Model) onLoginSettled(msg loginSettledMsg) (tea.Model, tea.Cmd) {
 }
 
 func loginError(err error) string {
+	switch {
+	case errors.Is(err, account.ErrLinkDenied):
+		return "o Lumi.app não permitiu (o terminal não vai pedir de novo sozinho; v tenta outra vez)"
+	case errors.Is(err, account.ErrLinkNoSession):
+		return "o Lumi.app também não está conectado nesta conta"
+	case errors.Is(err, account.ErrLinkNoPeer):
+		return "o Lumi.app não está aberto"
+	case errors.Is(err, account.ErrInvalidLink):
+		return "o link expirou — tente de novo"
+	}
 	var apiErr *account.APIError
 	if errors.As(err, &apiErr) {
 		switch apiErr.Code {
@@ -777,7 +894,15 @@ func humanWait(d time.Duration) string {
 	}
 }
 
-// accountAction signs out, removes an account or a whole server.
+// accountAction signs out (this TUI, or the whole Mac), removes an
+// account or a whole server (SPEC-LIVROS §8.5).
+//
+//   - signout (s): ends this TUI's session only; Lumi.app stays signed in
+//     and the TUI won't ask it for a link on its own.
+//   - signoutmac (S): logout scope=device (ends every linked session) and
+//     signed_out_at in the shared registry, so Lumi.app drops its token.
+//   - remove (d) / server (D): the same as signoutmac, then the row goes
+//     (Lumi.app sees the row vanish and forgets the account too).
 func (m Model) accountAction(kind string, r acctRow) (tea.Model, tea.Cmd) {
 	s := m.acct
 	f, err := account.Load()
@@ -796,18 +921,25 @@ func (m Model) accountAction(kind string, r acctRow) (tea.Model, tea.Cmd) {
 			targets = []account.Account{*x}
 		}
 	}
+	now := time.Now().UTC()
 	var cmds []tea.Cmd
 	for _, t := range targets {
 		if t.Token != "" {
-			cmds = append(cmds, logoutCmd(t))
+			cmds = append(cmds, logoutCmd(t, kind != "signout"))
 		}
-		if kind == "signout" {
+		switch kind {
+		case "signout":
 			if x := f.Find(t.Server, t.Username); x != nil {
 				x.Token = ""
 			}
-		} else {
+			f.SetLinkOptOut(t.Server, t.Username, true)
+		case "signoutmac":
+			f.SignOutMac(t.Server, t.Username, now)
+		default:
+			f.SignOutMac(t.Server, t.Username, now)
 			f.Remove(t.Server, t.Username)
 		}
+		// No token left here either way: stop this account's live feed.
 		if m.bookMgr != nil {
 			m.bookMgr.RemoveAccount(t.Server, t.Username)
 		}
@@ -819,7 +951,10 @@ func (m Model) accountAction(kind string, r acctRow) (tea.Model, tea.Cmd) {
 	m.reloadAccounts()
 	switch kind {
 	case "signout":
-		s.info = "saiu de " + books.Host(r.server) + " (" + r.acct.Username + ")"
+		s.info = "saiu do terminal em " + books.Host(r.server) + " (" + r.acct.Username + ") — o Lumi.app continua conectado"
+		s.selectAccount(r.server, r.acct.Username)
+	case "signoutmac":
+		s.info = "saiu de " + books.Host(r.server) + " (" + r.acct.Username + ") neste Mac (terminal e Lumi.app)"
 		s.selectAccount(r.server, r.acct.Username)
 	case "server":
 		s.info = "servidor " + books.Host(r.server) + " removido"
@@ -829,8 +964,9 @@ func (m Model) accountAction(kind string, r acctRow) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// logoutCmd revokes the session server-side (best effort).
-func logoutCmd(a account.Account) tea.Cmd {
+// logoutCmd revokes the session server-side (best effort). device=true
+// also ends every session linked to it (Lumi.app's, when linked).
+func logoutCmd(a account.Account, device bool) tea.Cmd {
 	return func() tea.Msg {
 		c, err := account.NewClient(a.Server)
 		if err != nil {
@@ -839,9 +975,77 @@ func logoutCmd(a account.Account) tea.Cmd {
 		c.SetToken(a.Token)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_ = c.Logout(ctx)
+		if device {
+			_ = c.LogoutDevice(ctx)
+		} else {
+			_ = c.Logout(ctx)
+		}
 		return signOutDoneMsg{server: a.Server, user: a.Username}
 	}
+}
+
+// startAppLink asks Lumi.app for a session for a (v): a device link the
+// app confirms (SPEC-LIVROS §8.4). Esc stops waiting.
+func (m Model) startAppLink(a account.Account) (tea.Model, tea.Cmd) {
+	s := m.acct
+	if !appAlive() {
+		s.err = "o Lumi.app não está aberto — abra o app ou entre com senha (⏎)"
+		return m, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), linkTimeout)
+	s.busy, s.linkCancel = true, cancel
+	s.awaiting[linkKey(a.Server, a.Username)] = true
+	s.info = "aprove no Lumi.app… (Esc cancela)"
+	return m, linkFromAppCmd(ctx, cancel, a)
+}
+
+// linkFromAppCmd runs the device link and stores the session; the result
+// arrives as a loginDoneMsg{link: true}.
+func linkFromAppCmd(ctx context.Context, cancel context.CancelFunc, a account.Account) tea.Cmd {
+	return func() tea.Msg {
+		defer cancel()
+		ch, err := account.NewLinkChannel()
+		if err != nil {
+			return loginDoneMsg{link: true, acct: a, err: err}
+		}
+		got, err := account.LinkAndSave(ctx, ch, a.Server, a.Username, linkPoll, linkClient)
+		if err != nil {
+			return loginDoneMsg{link: true, acct: a, err: err}
+		}
+		return loginDoneMsg{link: true, acct: *got}
+	}
+}
+
+// onAppLinkDone ends a `v` request: the session is already saved.
+func (m Model) onAppLinkDone(msg loginDoneMsg) (tea.Model, tea.Cmd) {
+	s := m.acct
+	if s == nil {
+		if msg.err == nil && m.bookMgr != nil {
+			m.bookMgr.AddAccount(msg.acct)
+		}
+		return m, nil
+	}
+	s.busy, s.linkCancel = false, nil
+	if msg.err != nil {
+		m.reloadAccounts()
+		s.info = ""
+		switch {
+		case errors.Is(msg.err, context.Canceled):
+			s.info = "pedido ao Lumi.app cancelado"
+		case errors.Is(msg.err, context.DeadlineExceeded):
+			s.err = "o Lumi.app não respondeu a tempo"
+		default:
+			s.err = loginError(msg.err)
+		}
+		return m, nil
+	}
+	if m.bookMgr != nil {
+		m.bookMgr.AddAccount(msg.acct)
+	}
+	m.reloadAccounts()
+	s.selectAccount(msg.acct.Server, msg.acct.Username)
+	s.info = "entrou como " + msg.acct.Username + " em " + books.Host(msg.acct.Server) + " pelo Lumi.app"
+	return m, tea.Batch(m.showToast(s.info, ToastSuccess, 3*time.Second), s.checkAll())
 }
 
 // --- rendering ---------------------------------------------------------
@@ -853,14 +1057,21 @@ func (m Model) renderAccounts() string {
 	return m.accountsCard().alone(m)
 }
 
-// sessionLabel is the account's state: dot colour and text.
-func sessionLabel(a account.Account, known bool, now time.Time) (lipgloss.Color, string) {
+// sessionLabel is the account's state: dot colour and text. link is the
+// device-link state with Lumi.app (accountsScreen.linkState).
+func sessionLabel(a account.Account, known bool, link string, now time.Time) (lipgloss.Color, string) {
 	t := theme.Current
 	switch {
+	case known && a.Token == "" && link != "":
+		return t.Info, link
 	case !known || a.Token == "":
 		return t.Warning, "precisa entrar"
 	case !a.ExpiresAt.IsZero() && now.After(a.ExpiresAt):
 		return t.Warning, "sessão expirada"
+	case link != "" && !a.ExpiresAt.IsZero():
+		return t.Accent, link + " · até " + ptDate(a.ExpiresAt)
+	case link != "":
+		return t.Accent, "conectada · " + link
 	case !a.ExpiresAt.IsZero():
 		return t.Accent, "conectada · sessão até " + ptDate(a.ExpiresAt)
 	}
@@ -935,7 +1146,7 @@ func (m Model) accountsCard() card {
 			name := lipgloss.NewStyle().Bold(true).Foreground(t.Text).Render(truncate(books.Host(r.server), 34))
 			line = mark + dot + " " + padVisual(name, 36) + dim.Render(truncate(info, max(4, w-42)))
 		case rowAccount:
-			col, st := sessionLabel(r.acct, r.known, now)
+			col, st := sessionLabel(r.acct, r.known, s.linkState(r.acct), now)
 			name := r.acct.Username
 			if r.acct.DisplayName != "" && r.acct.DisplayName != r.acct.Username {
 				name = r.acct.DisplayName + " · " + r.acct.Username
@@ -975,9 +1186,10 @@ func (m Model) accountsCard() card {
 		c.nl()
 	case s.confirm != "":
 		q := map[string]string{
-			"signout": "Sair desta conta?",
-			"remove":  "Remover esta conta deste aparelho?",
-			"server":  "Remover o servidor e todas as suas contas?",
+			"signout":    "Sair só neste terminal? (o Lumi.app continua conectado)",
+			"signoutmac": "Sair neste Mac (terminal e Lumi.app)?",
+			"remove":     "Remover esta conta deste aparelho (terminal e Lumi.app)?",
+			"server":     "Remover o servidor e todas as suas contas?",
 		}[s.confirm]
 		c.text(lipgloss.NewStyle().Foreground(t.Warning).Render(q + "  "))
 		c.button("y", "sim", "y")
@@ -1000,11 +1212,17 @@ func (m Model) accountsCard() card {
 				label = "entrar"
 			}
 			c.button("⏎", label, "enter")
+			if r.known && r.acct.Token == "" && s.appUp {
+				c.gap(3)
+				c.button("v", "vincular ao app", "v")
+			}
 			if r.known && r.acct.Token != "" {
 				c.gap(3)
-				c.button("s", "sair", "s")
+				c.button("s", "sair daqui", "s")
 			}
 			if r.known {
+				c.gap(3)
+				c.button("S", "sair neste Mac", "S")
 				c.gap(3)
 				c.button("d", "remover conta", "d")
 			}
@@ -1043,7 +1261,25 @@ func (m Model) accountsCard() card {
 		}
 		c.line(dim.Render(truncate(r.server+" · web: "+web, w)))
 	}
+	if ok && s.origin == nil && s.confirm == "" && r.kind == rowAccount && r.known {
+		if hint := s.linkHint(r.acct); hint != "" {
+			c.line(dim.Render(truncate(hint, w)))
+		}
+	}
 	return m.buildCard(&c, w)
+}
+
+// linkHint explains the selected account's link with Lumi.app.
+func (s *accountsScreen) linkHint(a account.Account) string {
+	switch {
+	case a.Token == "" && s.awaiting[linkKey(a.Server, a.Username)]:
+		return "Lumi.app: aprove o pedido no app (ele pergunta antes de entrar)"
+	case a.Token == "" && s.appUp:
+		return "Lumi.app aberto: v pede a sessão ao app, sem digitar a senha"
+	case a.Token != "" && a.LinkedApp:
+		return "Lumi.app: sessão vinculada · s sai só aqui · S sai aqui e no app"
+	}
+	return ""
 }
 
 func countKind(rows []acctRow, k acctRowKind) int {

@@ -1,0 +1,16 @@
+# lumi account credentials. DO NOT share. Tokens grant full access
+# to the listed servers. lumi-apple stores tokens in Keychain instead
+# of in a file; this layout is TUI/Linux-specific.
+version: 2
+accounts:
+    - server: https://lumi.work.com
+      username: alice
+      user_id: 0192f7a1-3b4c-7d5e-8f60-718293a4b5c6
+      display_name: Alice
+      token: tok-alice-work
+      expires_at: 2026-12-20T08:30:00Z
+      added_at: 2026-11-20T08:30:00Z
+    - server: http://192.168.1.20:8080
+      username: bob
+      token: tok-bob-lab
+      added_at: 2026-01-01T00:00:00Z

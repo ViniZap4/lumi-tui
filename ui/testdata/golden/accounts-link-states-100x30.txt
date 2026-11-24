@@ -1,0 +1,30 @@
+
+
+
+
+
+ ╭────────────────────────────────────────────────────────────────────────────────────────────────╮
+ │                                                                                                │
+ │  contas e servidores  ·  1 servidor                                                            │
+ │                                                                                                │
+ │  SERVIDORES  →  contas  →  livros                                                              │
+ │    ○ lumi.example.com                                                                          │
+ │       ana                      ● vinculada ao app · até 1 jan 2099  1 livro                    │
+ │          ◇ test                       sem pasta aqui — c clonar · L ligar pasta                │
+ │       bob                      ● aguardando aprovação no app        0 livros                   │
+ │     ▸ carol                    ● precisa entrar                     0 livros                   │
+ │                                                                                                │
+ │  ⏎ entrar   v vincular ao app   S sair neste Mac   d remover conta   w endereço web            │
+ │  a adicionar servidor   b livros   Esc voltar                                                  │
+ │  https://lumi.example.com · web: não definido (w)                                              │
+ │  Lumi.app aberto: v pede a sessão ao app, sem digitar a senha                                  │
+ │                                                                                                │
+ ╰────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+ j k move   ⏎ sign in / open   a add server   n new account   s sign out here   r check server   …
+ ACCOUNTS  ~                                                                    ▫ não ligado  Notas

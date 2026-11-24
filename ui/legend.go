@@ -143,7 +143,8 @@ func legendFor(ctx LegendContext, pending string) []LegendItem {
 		return []LegendItem{{"⏎", "open"}, {"⌃w f", "open in split"}, {"j k", "scroll"}, {"Esc", "close"}}
 	case CtxAccounts:
 		return []LegendItem{{"j k", "move"}, {"⏎", "sign in / open"}, {"a", "add server"}, {"n", "new account"},
-			{"s", "sign out"}, {"d D", "remove account/server"}, {"c L", "clone / link book"}, {"r", "check server"},
+			{"s", "sign out here"}, {"S", "sign out on this Mac"}, {"v", "link with Lumi.app"},
+			{"d D", "remove account/server"}, {"c L", "clone / link book folder"}, {"r", "check server"},
 			{"w", "web address"}, {"b", "books"}, {"Esc", "back"}}
 	case CtxLogin:
 		return []LegendItem{{"⏎", "sign in"}, {"Tab ⇧Tab", "field"}, {"⌃t", "show/hide password"}, {"Esc", "cancel"}}

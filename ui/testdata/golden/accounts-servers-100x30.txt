@@ -12,8 +12,8 @@
  │  ▸ ● 192.168.0.10:8080                   offline — servidor inacessível — sem conexão          │
  │       casa                     ● conectada                          0 livros                   │
  │    ● lumi-api.example.com                online · 38 ms · lumi 2.9.0                           │
- │       bob                      ● precisa entrar                     0 livros                   │
  │       Ana · ana                ● conectada · sessão até 1 jan 2099  0 livros                   │
+ │       bob                      ● precisa entrar                     0 livros                   │
  │                                                                                                │
  │  n nova conta   r verificar   w endereço web   D remover servidor                              │
  │  a adicionar servidor   b livros   Esc voltar                                                  │
@@ -26,5 +26,5 @@
 
 
 
- j k move   ⏎ sign in / open   a add server   n new account   s sign out   r check server   …
+ j k move   ⏎ sign in / open   a add server   n new account   s sign out here   r check server   …
  ACCOUNTS  ~ · 1/4                                                                            local

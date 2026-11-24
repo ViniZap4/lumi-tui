@@ -1,0 +1,34 @@
+# hand-edited
+version: 3
+accounts:
+  - server: HTTPS://Lumi.Work.com:443/
+    username: Carol
+    user_id: 8C5A1D9F-2E3B-4C4D-9E5F-6A7B8C9D0E1F
+    display_name: 'Carol \ admin'
+    added_at: 2026-11-22T07:00:00-03:00
+    expires_at: 2026-12-22T10:00:00.500Z
+    signed_out_at: ~
+  - server: "https://notes.friend.org/lumi"
+    username: "alice"
+    user_id: "legacy-7"
+    display_name: "Alice\tS. — Ação"
+    web_origin:
+    added_at: 2026-11-20T08:30:00Z
+    expires_at: NULL
+    signed_out_at: 2026-11-23T12:00:00Z   # sair neste Mac
+  - server: http://192.168.1.20:8080
+    username: bob
+    added_at: 2025-12-31T21:00:00-03:00
+  - server: "https://lumi.work.com"
+    username: "alice"
+    user_id: 0192f7a1-3b4c-7d5e-8f60-718293a4b5c6
+    display_name: "stale duplicate"
+    added_at: 2026-11-19T08:30:00Z
+  - server: "https://lumi.work.com"
+    username: "alice"
+    user_id: 0192f7a1-3b4c-7d5e-8f60-718293a4b5c6
+    display_name: "Alice \"A.\" Souza"
+    web_origin: "https://notes.work.com"
+    added_at: 2026-11-20T08:30:00Z
+    expires_at: 2026-12-20T08:30:00Z
+    signed_out_at: null

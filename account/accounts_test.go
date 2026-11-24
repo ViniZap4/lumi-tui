@@ -159,7 +159,7 @@ func TestUpsertKeepsTwoAccountsOnSameServer(t *testing.T) {
 	}
 }
 
-func TestLoadV1MigratesToV2WithoutLoss(t *testing.T) {
+func TestLoadV1MigratesToV3WithoutLoss(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "lumi", "accounts.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -186,8 +186,8 @@ accounts:
 	if err != nil {
 		t.Fatalf("LoadFrom: %v", err)
 	}
-	if f.Version != 0 {
-		t.Errorf("v1 file should load with Version 0, got %d", f.Version)
+	if f.Version != RegistryVersion {
+		t.Errorf("v1 file should be migrated to v3 on load, got %d", f.Version)
 	}
 	a := f.Find("https://lumi.work.example", "alice")
 	if a == nil || a.Token != "tok-1" || a.UserID != "u-1" || a.DisplayName != "Alice" || a.ExpiresAt.IsZero() {
@@ -203,15 +203,19 @@ accounts:
 		t.Fatalf("SaveTo: %v", err)
 	}
 	data, _ := os.ReadFile(path)
-	if !strings.Contains(string(data), "version: 2") {
-		t.Errorf("saved file missing version: 2:\n%s", data)
+	if !strings.Contains(string(data), "version: 3") || strings.Contains(string(data), "tok-") {
+		t.Errorf("saved registry must be v3 without tokens:\n%s", data)
+	}
+	tok, _ := os.ReadFile(filepath.Join(filepath.Dir(path), "tokens.yaml"))
+	if !strings.Contains(string(tok), "tok-1") || !strings.Contains(string(tok), "tok-2") {
+		t.Errorf("tokens.yaml lost a token:\n%s", tok)
 	}
 	info, _ := os.Stat(path)
 	if info.Mode().Perm() != 0o600 {
 		t.Errorf("perm = %o, want 0600", info.Mode().Perm())
 	}
 	again, err := LoadFrom(path)
-	if err != nil || len(again.Accounts) != 2 || again.Version != 2 {
+	if err != nil || len(again.Accounts) != 2 || again.Version != 3 || again.Find("http://localhost:8080", "bob").Token != "tok-2" {
 		t.Fatalf("reload: %+v, %v", again, err)
 	}
 }
@@ -255,14 +259,15 @@ func TestNormalizeServerURL(t *testing.T) {
 	}
 }
 
-func TestUpsertSortsByAddedAtDescending(t *testing.T) {
+// Registry order (SPEC-LIVROS §8.3): oldest first, like Lumi.app.
+func TestUpsertSortsByAddedAtAscending(t *testing.T) {
 	f := &File{}
 	older := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 	newer := time.Date(2026, 5, 22, 0, 0, 0, 0, time.UTC)
-	f.Upsert(Account{Server: "https://old", Username: "u1", Token: "t1", AddedAt: older})
 	f.Upsert(Account{Server: "https://new", Username: "u2", Token: "t2", AddedAt: newer})
-	if f.Accounts[0].Server != "https://new" {
-		t.Errorf("expected most-recent first, got %s", f.Accounts[0].Server)
+	f.Upsert(Account{Server: "https://old", Username: "u1", Token: "t1", AddedAt: older})
+	if f.Accounts[0].Server != "https://old" {
+		t.Errorf("expected oldest first, got %s", f.Accounts[0].Server)
 	}
 }
 
@@ -297,11 +302,13 @@ func TestIsExpired(t *testing.T) {
 	}
 }
 
-func TestSaveHeaderIncludesWarning(t *testing.T) {
+// The shared registry never carries a secret; the token goes to the
+// TUI-only tokens.yaml (0600) with the warning header.
+func TestSaveKeepsTokensOutOfRegistry(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "accounts.yaml")
 
-	f := &File{Accounts: []Account{{Server: "https://x", Username: "y", Token: "z", AddedAt: time.Now()}}}
+	f := &File{Accounts: []Account{{Server: "https://x", Username: "y", Token: "secret-z", AddedAt: time.Now()}}}
 	if err := f.SaveTo(path); err != nil {
 		t.Fatalf("SaveTo: %v", err)
 	}
@@ -309,7 +316,16 @@ func TestSaveHeaderIncludesWarning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if !strings.Contains(string(data), "DO NOT share") {
-		t.Errorf("header missing 'DO NOT share' warning; got:\n%s", string(data))
+	if strings.Contains(string(data), "secret-z") || strings.Contains(string(data), "token") {
+		t.Errorf("registry leaked the token:\n%s", data)
+	}
+	tok, err := os.ReadFile(filepath.Join(dir, "tokens.yaml"))
+	if err != nil || !strings.Contains(string(tok), "DO NOT share") || !strings.Contains(string(tok), "secret-z") {
+		t.Errorf("tokens.yaml: %v\n%s", err, tok)
+	}
+	for _, name := range []string{"accounts.yaml", "tokens.yaml", "accounts.yaml.lock", "tokens.yaml.lock"} {
+		if info, err := os.Stat(filepath.Join(dir, name)); err != nil || info.Mode().Perm() != 0600 {
+			t.Errorf("%s: %v %v", name, err, info)
+		}
 	}
 }

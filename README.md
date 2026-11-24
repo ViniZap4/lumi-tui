@@ -66,11 +66,20 @@ Built with [Go](https://golang.org) and [Bubbletea](https://github.com/charmbrac
   SGR, so scrolling never flickers
 - Accounts and servers inside the TUI (`ga`): servers → accounts → books,
   each server checked live (`GET /api/info`: online/offline, latency, name
-  and version), accounts with session expiry and book count; sign in/out,
-  remove, add server, web address, clone/link a book — keys and clickable
-  buttons. The sign-in card validates the URL as you type, masks the
-  password (`⌃t` shows it) and reports wrong password / rate limit /
-  unreachable / TLS inline
+  and version), accounts with session expiry, link state with Lumi.app
+  (vinculada ao app / aguardando aprovação no app) and book count; sign
+  in, `v` link with Lumi.app (device link, the app confirms), `s` sign out
+  of this terminal only, `S` sign out on this Mac (terminal and app),
+  `d`/`D` remove account/server, add server, web address, `c`/`L`
+  clone/link a book folder — keys and clickable buttons. The sign-in card
+  validates the URL as you type, masks the password (`⌃t` shows it) and
+  reports wrong password / rate limit / unreachable / TLS inline
+- One account registry with Lumi.app on the same machine
+  (`~/.config/lumi/accounts.yaml` v3, no secrets; this TUI's tokens in
+  `tokens.yaml`, 0600): accounts added, signed out or removed in either
+  show up in the other within a second; `lumi accounts link` asks the app
+  for a session, `lumi accounts signout [--mac]`, and the TUI answers the
+  app's link requests on its own
 - `lumi open [<book>[/<note>]] [--web]` opens the Lumi app (macOS,
   `lumi://`) or the web client
 - Inline images in the reader (timg/chafa/viu), wiki-links, 12 themes
