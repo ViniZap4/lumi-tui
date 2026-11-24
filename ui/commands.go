@@ -10,7 +10,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/glamour"
 	"github.com/vinizap/lumi/tui-client/domain"
 	"github.com/vinizap/lumi/tui-client/filesystem"
 	"github.com/vinizap/lumi/tui-client/theme"
@@ -170,54 +169,6 @@ func (m Model) performSearch() tea.Msg {
 	return searchResultsMsg{results: results, gen: m.searchGen}
 }
 
-func (m *Model) followLinkAtCursor() tea.Cmd {
-	if m.lineCursor >= len(m.contentLines) {
-		return nil
-	}
-
-	line := m.contentLines[m.lineCursor]
-
-	// 1. Checkbox toggle takes priority
-	if m.toggleCheckbox() {
-		return nil
-	}
-
-	// 2. Wikilinks [[target]]
-	for i := 0; i < len(line)-1; i++ {
-		if line[i:i+2] == "[[" {
-			end := strings.Index(line[i+2:], "]]")
-			if end != -1 {
-				linkStart := i
-				linkEnd := i + 2 + end + 2
-				if m.colCursor >= linkStart && m.colCursor < linkEnd {
-					target := line[i+2 : i+2+end]
-					return m.openNoteByLink(target)
-				}
-			}
-		}
-	}
-
-	// 3. Standard links [text](url)
-	if url := m.linkURLAtCursor(); url != "" {
-		if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
-			openBrowser(url)
-			m.statusMsg = "Opened in browser"
-			return nil
-		}
-		// Treat as internal note reference
-		return m.openNoteByLink(url)
-	}
-
-	// 4. Bare URLs (http:// or https://) at cursor position
-	if url := m.bareURLAtCursor(); url != "" {
-		openBrowser(url)
-		m.statusMsg = "Opened in browser"
-		return nil
-	}
-
-	return nil
-}
-
 // lineHasCheckbox reports whether the raw line at idx carries a
 // markdown task-list checkbox (`- [ ]`, `- [x]`, `+ [X]`, ...).
 // Matches the same shape toggleCheckbox accepts so the navigation
@@ -370,32 +321,6 @@ func (m *Model) wikiLinkTargetAtCursor() string {
 	return ""
 }
 
-// openLinkInSplit opens the link under the cursor in a split view.
-// Returns true if a link was found and opened.
-func (m *Model) openLinkInSplit(mode string) bool {
-	// Try wikilink first
-	if target := m.wikiLinkTargetAtCursor(); target != "" {
-		note := m.findNoteByLink(target)
-		if note != nil {
-			m.splitMode = mode
-			m.splitNote = note
-			return true
-		}
-	}
-	// Try standard link to internal note
-	if url := m.linkURLAtCursor(); url != "" {
-		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-			note := m.findNoteByLink(url)
-			if note != nil {
-				m.splitMode = mode
-				m.splitNote = note
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // bareURLAtCursor returns a bare URL (http:// or https://) if the cursor is within one.
 func (m *Model) bareURLAtCursor() string {
 	if m.lineCursor >= len(m.contentLines) {
@@ -529,20 +454,6 @@ func pathIsInsideVault(rootDir, candidate string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// openExternalLink opens the URL under the cursor in the system browser.
-// Returns true if a URL was found and opened.
-func (m *Model) openExternalLink() bool {
-	// Check standard link URL
-	if url := m.linkURLAtCursor(); url != "" {
-		if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
-			openBrowser(url)
-			m.statusMsg = "Opened in browser"
-			return true
-		}
-	}
-	return false
-}
-
 // openBrowser opens a URL in the default system browser.
 func openBrowser(url string) {
 	switch runtime.GOOS {
@@ -553,16 +464,6 @@ func openBrowser(url string) {
 	case "windows":
 		exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
 	}
-}
-
-func (m *Model) openNoteByLink(target string) tea.Cmd {
-	note := m.findNoteByLink(target)
-	if note != nil {
-		m.openNote(note)
-	} else {
-		m.statusMsg = "Note not found: " + target
-	}
-	return nil
 }
 
 // insertLinkToNote inserts a markdown link to the target note at the current cursor position.
@@ -607,49 +508,13 @@ func (m *Model) insertLinkToNote(target *domain.Note) {
 
 // openNote sets up the model to view a note with rendered markdown.
 func (m *Model) openNote(note *domain.Note) {
-	m.fullNote = note
+	if m.ws == nil || m.ws.root == nil {
+		if m.restoreLayout(note.Path) {
+			m.fullNote = m.ws.focus.buf.note
+			return
+		}
+	}
+	m.syncFocusOut()
+	m.openNoteIn(note, "replace")
 	m.contentLines = strings.Split(note.Content, "\n")
-	preprocessTableBlocks(m.contentLines)
-	m.lineCursor = 0
-	m.colCursor = 0
-	m.desiredCol = 0
-	m.visualMode = VisualNone
-	m.viewMode = ViewFullNote
-	m.renderMarkdown()
-}
-
-// renderMarkdown uses glamour to render the note content.
-func (m *Model) renderMarkdown() {
-	if m.fullNote == nil || m.renderer == nil {
-		return
-	}
-
-	width := m.width - 4
-	if width < 40 {
-		width = 40
-	}
-
-	renderer, err := glamour.NewTermRenderer(
-		glamour.WithStylePath(glamourStyle()),
-		glamour.WithWordWrap(width),
-	)
-	if err != nil {
-		m.renderedView = m.fullNote.Content
-		m.renderedLines = m.contentLines
-		return
-	}
-
-	rendered, err := renderer.Render(m.fullNote.Content)
-	if err != nil {
-		m.renderedView = m.fullNote.Content
-		m.renderedLines = m.contentLines
-		return
-	}
-
-	m.renderedView = rendered
-	m.renderedLines = strings.Split(rendered, "\n")
-
-	for len(m.renderedLines) > 0 && strings.TrimSpace(m.renderedLines[len(m.renderedLines)-1]) == "" {
-		m.renderedLines = m.renderedLines[:len(m.renderedLines)-1]
-	}
 }

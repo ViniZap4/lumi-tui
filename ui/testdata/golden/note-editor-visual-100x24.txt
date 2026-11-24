@@ -1,0 +1,24 @@
+ One                                                                                          fonte
+ # one
+
+ See [[two]] and [the site](https://example.com).
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ y copy   h j k l extend   w b e word   Esc normal
+ VISUAL  ~/one.md · Ln 3 Col 6                                                                local

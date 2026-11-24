@@ -35,9 +35,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		if m.fullNote != nil {
-			m.renderMarkdown()
-		}
 		return m, nil
 
 	case yankFlashMsg:
@@ -133,14 +130,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			cmds = append(cmds, m.showToast("editor: "+msg.err.Error(), ToastError, 4*time.Second))
 		}
-		if reloaded, err := filesystem.ReadNote(msg.notePath); err == nil && msg.reopen {
-			line, col := m.lineCursor, m.colCursor
-			m.openNote(reloaded)
-			m.lineCursor, m.colCursor = line, col
-			m.clampCursor()
+		m.reloadBuffer(msg.notePath)
+		if m.ws != nil && m.ws.root != nil && msg.reopen {
+			m.viewMode = ViewFullNote
 		}
 		m.pendingSelect = msg.notePath
 		m.localEdit()
+		m.lastShape = ""
+		cmds = append(cmds, m.shapeCmd())
 		return m, tea.Batch(cmds...)
 
 	case toastDismissMsg:
@@ -155,7 +152,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		return m.updateMouse(msg)
 
+	case autosaveMsg:
+		if m.ws != nil {
+			if b, ok := m.ws.bufs[msg.path]; ok && b.editSeq == msg.seq && b.dirty() {
+				return m, m.saveBuffer(b)
+			}
+		}
+		return m, nil
+
+	case overlayTickMsg:
+		if m.overlayFrame > 0 {
+			m.overlayFrame--
+			if m.overlayFrame > 0 {
+				return m, overlayTick()
+			}
+		}
+		return m, nil
+
+	case loginDoneMsg:
+		return m.onLoginDone(msg)
+
+	case signOutDoneMsg:
+		return m, nil
+
 	case tea.KeyMsg:
+		if m.acct != nil {
+			return m.updateAccounts(msg)
+		}
+		if m.hover != nil && m.viewMode == ViewFullNote && !m.showPalette && !m.showHelp {
+			return m.updateHover(msg.String())
+		}
 		if m.showPalette {
 			return m.updatePalette(msg)
 		}
@@ -174,6 +200,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.showInput {
 			return m.updateInput(msg)
+		}
+		if m.floatExp && m.viewMode == ViewFullNote {
+			return m.updateFloatExplorer(msg)
 		}
 
 		switch m.viewMode {

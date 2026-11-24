@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 	"github.com/vinizap/lumi/tui-client/theme"
+	"github.com/vinizap/lumi/tui-client/vim"
 )
 
 // Screen chrome shared by every view:
@@ -58,8 +59,41 @@ func (m Model) legendContext() LegendContext {
 		return CtxBooks
 	case m.showBookDetails:
 		return CtxDetails
+	case m.acct != nil:
+		return CtxAccounts
 	case m.filterTyping:
 		return CtxFilter
+	}
+	if m.viewMode == ViewFullNote && m.ws != nil && m.ws.focus != nil {
+		p := m.ws.focus
+		switch {
+		case m.hover != nil:
+			return CtxHover
+		case m.floatExp:
+			return CtxFloat
+		case m.winPending:
+			return CtxWindow
+		}
+		switch p.view {
+		case viewBoard:
+			return CtxBoard
+		case viewCanvas:
+			return CtxCanvas
+		case viewSource, viewSplit:
+			if p.view == viewSplit && p.previewFocus {
+				return CtxSplitPre
+			}
+			switch e := p.buf.eng; {
+			case e.Mode() == vim.ModeInsert || e.Mode() == vim.ModeReplace:
+				return CtxInsert
+			case e.Mode() == vim.ModeCmdline:
+				return CtxCmdline
+			case e.Mode().IsVisual():
+				return CtxVisual
+			}
+			return CtxEditor
+		}
+		return CtxReader
 	}
 	switch m.viewMode {
 	case ViewHome:
@@ -91,6 +125,10 @@ func promptLabel(mode string) string {
 		return "rename folder"
 	case "config_editor":
 		return "editor command"
+	case "find":
+		return "find"
+	case "config_escape":
+		return "escape sequences (jj,jk)"
 	}
 	return mode
 }
@@ -113,6 +151,10 @@ func (m Model) renderLegendRow() string {
 			hint = lipgloss.NewStyle().Foreground(mutedColor).Render("   a/b/name · dir/ · ⏎ ok · Esc cancel")
 		}
 		return padVisual(label+val+caret+hint, m.width)
+	case m.legendContext() == CtxCmdline:
+		kind, text := m.ws.focus.buf.eng.Cmdline()
+		return padVisual(lipgloss.NewStyle().Foreground(t.Primary).Bold(true).Render(" "+string(kind))+
+			lipgloss.NewStyle().Foreground(t.Text).Render(text)+caret, m.width)
 	case m.filterTyping:
 		label := lipgloss.NewStyle().Foreground(t.Primary).Bold(true).Render(" / ")
 		val := lipgloss.NewStyle().Foreground(t.Text).Render(m.filter)
@@ -140,11 +182,28 @@ func (m Model) modeName() string {
 		return "SETTINGS"
 	case CtxReader:
 		return "READ"
-	case CtxVisual:
+	case CtxVisual, CtxEditor, CtxInsert, CtxCmdline:
+		if m.ws != nil && m.ws.focus != nil {
+			return m.ws.focus.buf.eng.Mode().String()
+		}
 		if m.visualMode == VisualLine {
 			return "V-LINE"
 		}
 		return "VISUAL"
+	case CtxBoard:
+		return "BOARD"
+	case CtxCanvas:
+		return "CANVAS"
+	case CtxWindow:
+		return "WINDOW"
+	case CtxFloat:
+		return "EXPLORE"
+	case CtxHover:
+		return "LINK"
+	case CtxAccounts:
+		return "ACCOUNTS"
+	case CtxSplitPre:
+		return "PREVIEW"
 	case CtxParent:
 		return "PARENT"
 	case CtxPreview:
@@ -162,12 +221,39 @@ func (m Model) renderStatusLine() string {
 	var left []string
 	switch m.viewMode {
 	case ViewFullNote:
-		if m.fullNote != nil {
-			left = append(left, dim.Render(m.displayRel(m.fullNote.Path)))
-			left = append(left, dim.Render(fmt.Sprintf("Ln %d Col %d", m.lineCursor+1, m.colCursor+1)))
-		}
-		if m.splitMode != "" {
-			left = append(left, dim.Render("split"))
+		if m.ws != nil && m.ws.focus != nil {
+			p := m.ws.focus
+			e := p.buf.eng
+			left = append(left, dim.Render(m.displayRel(p.buf.path)))
+			switch p.view {
+			case viewSource, viewSplit:
+				c := e.Cursor()
+				left = append(left, dim.Render(fmt.Sprintf("Ln %d Col %d", c.Line+1, c.Col+1)))
+			case viewReader:
+				_, w, h := m.paneRect(p)
+				lines, _ := m.readerLines(p, w)
+				pct := 100
+				if n := len(lines) - (h - 1); n > 0 {
+					pct = min(100, p.scroll*100/n)
+				}
+				left = append(left, dim.Render(fmt.Sprintf("%d%%", pct)))
+			}
+			if p.buf.dirty() {
+				left = append(left, lipgloss.NewStyle().Foreground(t.Warning).Render("não salvo"))
+			}
+			if r := e.Recording(); r != 0 {
+				left = append(left, lipgloss.NewStyle().Foreground(t.Warning).Render("gravando @"+string(r)))
+			}
+			if n := len(m.ws.leaves()); n > 1 {
+				left = append(left, dim.Render(fmt.Sprintf("%d painéis", n)))
+			}
+			if msg, isErr := e.Message(); msg != "" && m.statusMsg == "" {
+				st := lipgloss.NewStyle().Foreground(t.Info)
+				if isErr {
+					st = st.Foreground(t.Error)
+				}
+				left = append(left, st.Render(truncate(msg, max(10, m.width/2))))
+			}
 		}
 	case ViewTree:
 		left = append(left, dim.Render(m.displayPath()))
@@ -192,6 +278,18 @@ func (m Model) renderStatusLine() string {
 	var right []string
 	if p := m.pendingInput(); p != "" {
 		right = append(right, lipgloss.NewStyle().Foreground(t.Warning).Bold(true).Render(p))
+	}
+	if m.viewMode == ViewFullNote && m.ws != nil && m.ws.focus != nil {
+		pend := ""
+		if m.winPending {
+			pend = "⌃w"
+		}
+		if v := m.ws.focus.view; v == viewSource || v == viewSplit {
+			pend += m.ws.focus.buf.eng.Pending()
+		}
+		if pend != "" {
+			right = append(right, lipgloss.NewStyle().Foreground(t.Warning).Bold(true).Render(pend))
+		}
 	}
 	if seg := m.renderBookSegment(); seg != "" {
 		right = append(right, seg)

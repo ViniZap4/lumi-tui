@@ -1,0 +1,24 @@
+ One                                                                                        leitura
+  one
+
+  See [[two]] and the site https://example.com.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ j k scroll   d u half page   gg G top/end   i e edit   E other editor   Tab next link   …
+ READ  ~/one.md · 100% · link 1/2: two                                                        local

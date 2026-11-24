@@ -1,0 +1,24 @@
+ One                                                                                          fonte
+ # one
+
+ See [[two]] and [the site](https://example.com).
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ ~
+ Esc normal   ⌃w delete word   ⌃r x insert register   ⌃t ⌃d indent
+ INSERT  ~/one.md · Ln 3 Col 6                                                                local

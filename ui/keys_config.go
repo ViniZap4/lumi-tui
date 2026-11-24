@@ -2,12 +2,14 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/vinizap/lumi/tui-client/config"
 	"github.com/vinizap/lumi/tui-client/theme"
+	"github.com/vinizap/lumi/tui-client/vim"
 )
 
 // enterConfig sets up the config view and transitions to it.
@@ -36,8 +38,19 @@ func (m Model) buildConfigItems(cfg *config.Config) []ConfigItem {
 		{Label: "Light theme", Kind: ConfigCycle, Key: "light_theme", Value: cfg.LightTheme, Options: lightNames},
 
 		{Label: "Editor", Kind: ConfigHeader},
-		{Label: "Command", Kind: ConfigInput, Key: "editor", Value: editorFull},
+		{Label: "Editor padrão (i e)", Kind: ConfigCycle, Key: "default_editor", Value: cfg.DefaultEditor, Options: []string{"internal", "external"}},
+		{Label: "External command", Kind: ConfigInput, Key: "editor", Value: editorFull},
+		{Label: "Open notes in", Kind: ConfigCycle, Key: "open_in", Value: cfg.OpenIn, Options: []string{"reader", "source"}},
+		{Label: "Escape sequences", Kind: ConfigInput, Key: "escape", Value: escValue(cfg.EscapeSequences)},
+		{Label: "Escape timeout ms", Kind: ConfigCycle, Key: "escape_timeout_ms", Value: fmt.Sprint(cfg.EscapeTimeoutMs), Options: []string{"150", "200", "300", "500", "800"}},
+		{Label: "Autosave", Kind: ConfigCycle, Key: "autosave", Value: boolStr(cfg.Autosave), Options: []string{"off", "on"}},
+		{Label: "Yank to clipboard", Kind: ConfigCycle, Key: "clipboard_sync", Value: boolStr(cfg.ClipboardSync), Options: []string{"off", "on"}},
+		{Label: "vimrc " + vimrcSummary(), Kind: ConfigCycle, Key: "vimrc", Value: boolStr(cfg.Vimrc), Options: []string{"off", "on"}},
+		{Label: "Reduce motion", Kind: ConfigCycle, Key: "reduce_motion", Value: boolStr(cfg.ReduceMotion), Options: []string{"off", "on"}},
 		{Label: "Open config file", Kind: ConfigAction, Key: "open_editor"},
+
+		{Label: "Servers", Kind: ConfigHeader},
+		{Label: "Accounts and servers (ga)", Kind: ConfigAction, Key: "accounts"},
 
 		{Label: "Explorer", Kind: ConfigHeader},
 		{Label: "Preview column", Kind: ConfigCycle, Key: "show_preview", Value: boolStr(!m.previewHidden), Options: []string{"off", "on"}},
@@ -128,6 +141,10 @@ func (m Model) configCycleForward() (Model, tea.Cmd) {
 		if item.Key == "open_editor" {
 			return m, m.openConfig()
 		}
+		if item.Key == "accounts" {
+			m.openAccounts()
+			return m, nil
+		}
 	case ConfigInput:
 		m.showInput = true
 		m.inputMode = "config_" + item.Key
@@ -210,9 +227,32 @@ func (m *Model) applyConfigChange(key, value string) tea.Cmd {
 	case "show_hidden":
 		cfg.ShowHidden = value == "on"
 		m.showHidden = cfg.ShowHidden
+	case "default_editor":
+		cfg.DefaultEditor = value
+	case "open_in":
+		cfg.OpenIn = value
+	case "escape":
+		cfg.EscapeSequences = nil
+		for _, part := range strings.Split(value, ",") {
+			if v, err := vim.ValidateEscapeSequence(part); err == nil && len(cfg.EscapeSequences) < 8 {
+				cfg.EscapeSequences = append(cfg.EscapeSequences, v)
+			}
+		}
+	case "escape_timeout_ms":
+		fmt.Sscan(value, &cfg.EscapeTimeoutMs)
+	case "autosave":
+		cfg.Autosave = value == "on"
+	case "clipboard_sync":
+		cfg.ClipboardSync = value == "on"
+	case "vimrc":
+		cfg.Vimrc = value == "on"
+	case "reduce_motion":
+		cfg.ReduceMotion = value == "on"
 	}
 
 	_ = cfg.Save()
+	m.cfg = cfg
+	m.applyEditorSettings()
 
 	if themeChanged {
 		theme.Resolve(cfg.ThemeMode, cfg.DarkTheme, cfg.LightTheme)
@@ -227,6 +267,38 @@ func (m *Model) applyConfigChange(key, value string) tea.Cmd {
 		}
 	}
 	return cmd
+}
+
+// escValue shows the escape sequences ("jj, jk" or "(none)").
+func escValue(seqs []string) string {
+	if len(seqs) == 0 {
+		return "(none)"
+	}
+	return strings.Join(seqs, ",")
+}
+
+// vimrcSummary is "(~/.config/lumi/vimrc: 3 maps, 1 error)".
+func vimrcSummary() string {
+	data, err := os.ReadFile(config.VimrcPath())
+	if err != nil {
+		return "(no ~/.config/lumi/vimrc)"
+	}
+	rc := vim.ParseVimrc(string(data), vim.DefaultOptions())
+	s := fmt.Sprintf("(%d maps", len(rc.Maps))
+	if n := rc.ErrorCount(); n > 0 {
+		s += fmt.Sprintf(", %d error(s)", n)
+	}
+	return s + ")"
+}
+
+// applyEditorSettings pushes changed settings into the open buffers.
+func (m *Model) applyEditorSettings() {
+	if m.ws == nil {
+		return
+	}
+	for _, b := range m.ws.bufs {
+		b.eng.Opts = m.engineOptions()
+	}
 }
 
 func cycleOption(options []string, current string, direction int) string {

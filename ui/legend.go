@@ -31,7 +31,30 @@ const (
 	CtxHelp     LegendContext = "help"
 	CtxDetails  LegendContext = "details"
 	CtxHome     LegendContext = "home"
+	// Part 2 (notes workspace)
+	CtxEditor   LegendContext = "editor" // built-in editor, normal mode
+	CtxInsert   LegendContext = "insert"
+	CtxCmdline  LegendContext = "cmdline"
+	CtxBoard    LegendContext = "board"
+	CtxCanvas   LegendContext = "canvas"
+	CtxWindow   LegendContext = "window" // Ctrl-w pending
+	CtxFloat    LegendContext = "float"  // floating explorer
+	CtxHover    LegendContext = "hover"
+	CtxAccounts LegendContext = "accounts"
+	CtxSplitPre LegendContext = "splitpreview"
 )
+
+var legendNoteG = []LegendItem{
+	{"gg", "top"}, {"gf", "follow link"}, {"gx", "open URL"}, {"gb", "books"}, {"gs", "sync details"}, {"ga", "accounts"},
+}
+
+var legendNoteZ = []LegendItem{{"zv", "next view"}}
+
+// legendWindow is the Ctrl-w which-key list (SPEC-PARTE2 §3).
+var legendWindow = []LegendItem{
+	{"v", "vertical split"}, {"s", "horizontal split"}, {"q", "close pane"}, {"o", "only this"},
+	{"h j k l", "move"}, {"w p", "next / previous"}, {"f F", "link in split"}, {"=", "equalise"},
+}
 
 // LegendItem is one "keys label" pair.
 type LegendItem struct {
@@ -40,7 +63,7 @@ type LegendItem struct {
 
 var legendG = []LegendItem{
 	{"gg", "top"}, {"ge", "bottom"}, {"gh", "book root"}, {"gb", "books"},
-	{"gs", "sync details"}, {"g1–9", "book n"},
+	{"gs", "sync details"}, {"ga", "accounts"}, {"g1–9", "book n"},
 }
 
 var legendZ = []LegendItem{
@@ -64,9 +87,52 @@ func legendFor(ctx LegendContext, pending string) []LegendItem {
 		}
 	}
 	switch ctx {
+	case CtxReader, CtxBoard, CtxCanvas:
+		switch chord {
+		case "g":
+			return legendNoteG
+		case "z":
+			return legendNoteZ
+		}
+	}
+	switch ctx {
+	case CtxWindow:
+		return legendWindow
+	case CtxEditor:
+		return []LegendItem{
+			{"i a o", "insert"}, {"v V ⌃v", "visual"}, {":w", "save"}, {":q", "reader"}, {"u ⌃r", "undo/redo"},
+			{"gf ⏎", "follow link"}, {"K", "link card"}, {"-", "explorer"}, {"⌃w", "panes"}, {":edit!", "$EDITOR"},
+			{":preview", "split preview"}, {"zv", "next view"}, {"/ n", "search"}, {". ", "repeat"},
+		}
+	case CtxInsert:
+		return []LegendItem{{"Esc", "normal"}, {"⌃w", "delete word"}, {"⌃r x", "insert register"}, {"⌃t ⌃d", "indent"}}
+	case CtxCmdline:
+		return []LegendItem{{"⏎", "run"}, {"Esc", "cancel"}, {"↑ ↓", "history"}, {"⌃r x", "register"}}
+	case CtxBoard:
+		return []LegendItem{
+			{"h l", "column"}, {"j k", "card"}, {"H L", "move ←→"}, {"J K", "move ↑↓"}, {"a o", "new card"},
+			{"⏎ i", "edit"}, {"x", "done"}, {"dd", "delete"}, {"A", "new column"}, {"/", "filter"},
+			{"zv", "source"}, {"e E", "editors"}, {"⌃w", "panes"}, {"q", "back"},
+		}
+	case CtxCanvas:
+		return []LegendItem{
+			{"j k Tab", "node"}, {"⏎ gf", "open file"}, {"⌃w f", "in split"}, {"gx", "open link"},
+			{"zv", "JSON source"}, {"-", "explorer"}, {"⌃w", "panes"}, {"q", "back"},
+		}
+	case CtxFloat:
+		return []LegendItem{
+			{"⏎", "open here"}, {"⌃v", "vertical split"}, {"⌃s", "horizontal split"}, {"j k h l", "move"},
+			{"/", "filter"}, {"a r d", "new/rename/delete"}, {"Esc q", "close"},
+		}
+	case CtxHover:
+		return []LegendItem{{"⏎", "open"}, {"⌃w f", "open in split"}, {"j k", "scroll"}, {"Esc", "close"}}
+	case CtxAccounts:
+		return []LegendItem{{"a", "sign in"}, {"⏎", "sign in again"}, {"s", "sign out"}, {"d D", "remove account/server"}, {"w", "web address"}, {"Esc", "back"}}
+	case CtxSplitPre:
+		return []LegendItem{{"j k", "scroll"}, {"d u", "half page"}, {"g G", "top/end"}, {"q Esc ⌃h", "back to editor"}}
 	case CtxExplorer:
 		return []LegendItem{
-			{"j k", "move"}, {"h l", "folder"}, {"⏎", "open"}, {"e i", "edit"},
+			{"j k", "move"}, {"h l", "folder"}, {"⏎", "open"}, {"e i", "edit"}, {"E", "other editor"},
 			{"/", "filter"}, {"a", "new"}, {"r", "rename"}, {"d", "delete"},
 			{"y p", "copy"}, {"space", "commands"}, {"?", "keys"}, {"gg G", "top/end"},
 			{"H L", "history"}, {":", "command"}, {"zp", "preview col"}, {"⌃d ⌃u", "half page"},
@@ -85,10 +151,10 @@ func legendFor(ctx LegendContext, pending string) []LegendItem {
 		}
 	case CtxReader:
 		return []LegendItem{
-			{"j k", "line"}, {"⌃d ⌃u", "half page"}, {"gg G", "top/end"}, {"e i", "edit"},
-			{"q Esc", "back"}, {"v V", "visual"}, {"y", "copy"}, {"⏎", "follow/toggle"},
-			{"space", "commands"}, {"?", "keys"}, {"/", "search"}, {"w b", "word"},
-			{"s S", "split"}, {"x", "open URL"}, {"[ ]", "prev/next book"}, {"gh", "book root"}, {",", "settings"},
+			{"j k", "scroll"}, {"d u", "half page"}, {"gg G", "top/end"}, {"i e", "edit"}, {"E", "other editor"},
+			{"Tab", "next link"}, {"⏎", "follow"}, {"K", "link card"}, {"q Esc", "back"}, {"-", "explorer"},
+			{"zv", "next view"}, {"⌃w", "panes"}, {"y", "copy"}, {"/", "find"},
+			{"space", "commands"}, {"?", "keys"}, {"[ ]", "prev/next book"}, {",", "settings"},
 		}
 	case CtxVisual:
 		return []LegendItem{{"y", "copy"}, {"h j k l", "extend"}, {"w b e", "word"}, {"Esc", "normal"}}

@@ -25,5 +25,5 @@
                                                            │ A note callout.                      │
                                                            ╰──────────────────────────────────────╯
                                                            1–20 / 30
- j k move   h l folder   ⏎ open   e i edit   / filter   a new   r rename   d delete   y p copy   …
+ j k move   h l folder   ⏎ open   e i edit   E other editor   / filter   a new   r rename   …
  EXPLORE  ~ · 2/2                                                                             local

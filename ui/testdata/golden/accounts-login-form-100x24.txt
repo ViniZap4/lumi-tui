@@ -1,0 +1,24 @@
+
+
+
+
+
+
+                 ╭────────────────────────────────────────────────────────────────╮
+                 │                                                                │
+                 │  entrar num servidor                                           │
+                 │                                                                │
+                 │    servidor  https://lumi-api.example.com                      │
+                 │    usuário   ana                                               │
+                 │  ▸ senha     •••••••▏                                          │
+                 │                                                                │
+                 │  Tab campo · ⏎ entrar · Esc cancelar — a senha nunca é salva   │
+                 │                                                                │
+                 ╰────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+ a sign in   ⏎ sign in again   s sign out   d D remove account/server   w web address   Esc back
+ ACCOUNTS  ~ · 1/4                                                                            local

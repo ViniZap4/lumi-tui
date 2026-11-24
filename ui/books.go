@@ -9,7 +9,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/vinizap/lumi/tui-client/books"
 	"github.com/vinizap/lumi/tui-client/feed"
-	"github.com/vinizap/lumi/tui-client/filesystem"
 	"github.com/vinizap/lumi/tui-client/theme"
 )
 
@@ -54,9 +53,9 @@ func (m Model) onBooksChanged() (tea.Model, tea.Cmd) {
 		if m.showNav {
 			cmds = append(cmds, m.loadNavItems)
 		}
-		if m.fullNote != nil {
-			if reloaded, err := filesystem.ReadNote(m.fullNote.Path); err == nil {
-				m.openNote(reloaded)
+		if m.ws != nil {
+			for path := range m.ws.bufs {
+				m.reloadBuffer(path)
 			}
 		}
 	}
@@ -148,6 +147,16 @@ func (m Model) updateBooksPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter", "l":
 		return m.switchToBook(m.bookCursor)
+	case "a":
+		m.showBooks = false
+		m.openAccounts()
+	case "s":
+		if m.bookCursor < len(list) {
+			m.showBooks = false
+			if list[m.bookCursor].ID == m.activeBookID {
+				m.showBookDetails = true
+			}
+		}
 	default:
 		if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
 			return m.switchToBook(int(key[0] - '1'))
@@ -239,15 +248,20 @@ func (m Model) renderBooksPicker() string {
 		if b.ID == m.activeBookID {
 			name = lipgloss.NewStyle().Bold(true).Foreground(theme.Current.Primary).Render(padRight(truncate(b.Name, 24), 24))
 		}
-		row := cursor + dim.Render(num) + dot + " " + name + "  " + dim.Render(truncate(where, 34))
+		label := lipgloss.NewStyle().Foreground(stateColor(v.Status.State)).Render(padRight(v.Status.State.Label(), 14))
+		pend := ""
+		if n := len(v.Pending); n > 0 {
+			pend = lipgloss.NewStyle().Foreground(theme.Current.Warning).Render("  " + pendingLabel(n))
+		}
+		row := cursor + dim.Render(num) + dot + " " + name + "  " + label + dim.Render(truncate(where, 30)) + pend
 		if i == m.bookCursor {
 			row = lipgloss.NewStyle().Background(theme.Current.SelectedBg).Render(row)
 		}
 		s.WriteString(row + "\n")
 	}
 	s.WriteString("\n")
-	s.WriteString(dim.Render("j/k mover · enter/1-9 abrir · J/K reordenar · esc fechar"))
-	return m.modalBox("livros", s.String(), 76)
+	s.WriteString(dim.Render("j/k mover · enter/1-9 abrir · J/K reordenar · gs detalhes · a contas · esc fechar"))
+	return m.modalBox("livros", s.String(), 96)
 }
 
 func (m Model) renderBookDetails() string {

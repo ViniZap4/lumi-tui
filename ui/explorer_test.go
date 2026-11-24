@@ -18,7 +18,10 @@ func keyMsg(k string) tea.KeyMsg {
 		"enter": tea.KeyEnter, "esc": tea.KeyEsc, "backspace": tea.KeyBackspace,
 		"ctrl+h": tea.KeyCtrlH, "ctrl+l": tea.KeyCtrlL, "ctrl+j": tea.KeyCtrlJ, "ctrl+k": tea.KeyCtrlK,
 		"ctrl+d": tea.KeyCtrlD, "ctrl+u": tea.KeyCtrlU, "ctrl+c": tea.KeyCtrlC, "up": tea.KeyUp, "down": tea.KeyDown,
-		"tab": tea.KeyTab, " ": tea.KeySpace,
+		"tab": tea.KeyTab, " ": tea.KeySpace, "shift+tab": tea.KeyShiftTab, "ctrl+w": tea.KeyCtrlW,
+		"ctrl+v": tea.KeyCtrlV, "ctrl+s": tea.KeyCtrlS, "ctrl+r": tea.KeyCtrlR, "ctrl+a": tea.KeyCtrlA,
+		"ctrl+x": tea.KeyCtrlX, "ctrl+f": tea.KeyCtrlF, "ctrl+b": tea.KeyCtrlB, "left": tea.KeyLeft, "right": tea.KeyRight,
+		"delete": tea.KeyDelete, "ctrl+o": tea.KeyCtrlO, "ctrl+e": tea.KeyCtrlE, "ctrl+y": tea.KeyCtrlY,
 	}
 	if t, ok := special[k]; ok {
 		return tea.KeyMsg{Type: t}
@@ -417,14 +420,22 @@ func TestReaderKeys(t *testing.T) {
 		t.Fatal("reader context")
 	}
 	m = keys(t, m, "j", "g", "g")
-	if m.lineCursor != 0 {
+	if m.ws.focus.scroll != 0 {
 		t.Fatal("gg in reader")
+	}
+	m = keys(t, m, "i")
+	if m.legendContext() != CtxEditor {
+		t.Fatalf("i opens the built-in editor: %v", m.legendContext())
 	}
 	m = keys(t, m, "V")
 	if m.legendContext() != CtxVisual {
 		t.Fatal("visual context")
 	}
-	m = keys(t, m, "esc", " ")
+	m = keys(t, m, "esc", ":", "q", "enter")
+	if m.legendContext() != CtxReader {
+		t.Fatalf(":q leaves the editor for the reader: %v", m.legendContext())
+	}
+	m = keys(t, m, " ")
 	if !m.showPalette {
 		t.Fatal("space opens the palette in the reader")
 	}

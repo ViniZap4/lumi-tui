@@ -180,6 +180,9 @@ func (m Model) chord(seq string) (Model, tea.Cmd, bool) {
 			m.showBookDetails = true
 		}
 		return m, nil, true
+	case "ga":
+		m.openAccounts()
+		return m, nil, true
 	}
 	if len(seq) == 2 && seq[0] == 'g' && seq[1] >= '1' && seq[1] <= '9' {
 		tm, cmd := m.switchToBook(int(seq[1] - '1'))
@@ -195,7 +198,12 @@ func (m *Model) goRoot() tea.Cmd {
 }
 
 // pendingInput is the chord/count shown by the legend.
-func (m Model) pendingInput() string { return m.count + m.treePrefix }
+func (m Model) pendingInput() string {
+	if m.viewMode == ViewFullNote && !m.floatExp {
+		return m.notePrefix
+	}
+	return m.count + m.treePrefix
+}
 
 func (m Model) updateTree(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.showNav {
@@ -508,9 +516,19 @@ func (m Model) updateListPane(key string) (tea.Model, tea.Cmd) {
 			m.pendingSelect = it.Path
 		}
 		return m, tea.Batch(m.loadItems, m.showToast("refreshed", ToastInfo, time.Second))
-	case "e", "i":
+	case "e", "i", "E":
+		// i/e: the default editor (Settings → Editor padrão); E: the other
 		if it, ok := m.currentItem(); ok && it.Note != nil {
-			return m, m.editCmd(&noteRef{note: it.Note, path: it.Path}, false)
+			external := m.noteCfg().DefaultEditor == "external"
+			if key == "E" {
+				external = !external
+			}
+			if external {
+				return m, m.editCmd(&noteRef{note: it.Note, path: it.Path}, false)
+			}
+			m.openNote(it.Note)
+			mm, cmd := m.editInternal(m.ws.focus)
+			return mm, cmd
 		}
 	case "c":
 		m.enterConfig()
@@ -587,7 +605,8 @@ type noteRef struct {
 // runCommand runs a palette command id.
 func (m Model) runCommand(id string) (tea.Model, tea.Cmd) {
 	if m.viewMode != ViewTree && id != "quit" && id != "settings" && id != "help" && id != "books" &&
-		id != "sync" && id != "prevbook" && id != "nextbook" && id != "legend" && id != "edit" {
+		id != "sync" && id != "prevbook" && id != "nextbook" && id != "legend" && id != "edit" && id != "edit-other" &&
+		id != "accounts" && !strings.HasPrefix(id, "view-") && id != "vsplit" && id != "hsplit" && id != "float" && id != "layout" {
 		m.viewMode = ViewTree
 	}
 	switch id {
@@ -598,10 +617,38 @@ func (m Model) runCommand(id string) (tea.Model, tea.Cmd) {
 	case "delete":
 		m.askDelete()
 	case "edit":
-		if m.viewMode == ViewFullNote && m.fullNote != nil {
-			return m, m.editCmd(&noteRef{note: m.fullNote, path: m.fullNote.Path, line: m.lineCursor, col: m.colCursor}, true)
+		if m.viewMode == ViewFullNote && m.ws != nil && m.ws.focus != nil {
+			return m.editDefault(m.ws.focus)
 		}
 		return m.updateListPane("e")
+	case "edit-other":
+		if m.viewMode == ViewFullNote && m.ws != nil && m.ws.focus != nil {
+			return m.editOther(m.ws.focus)
+		}
+		return m.updateListPane("E")
+	case "accounts":
+		m.openAccounts()
+	case "view-reader", "view-source", "view-preview", "view-board":
+		if m.ws != nil && m.ws.focus != nil {
+			v := map[string]paneView{"view-reader": viewReader, "view-source": viewSource, "view-preview": viewSplit, "view-board": viewBoard}[id]
+			m.viewMode = ViewFullNote
+			m.setView(m.ws.focus, v)
+			return m, m.shapeCmd()
+		}
+	case "vsplit", "hsplit":
+		if m.ws != nil && m.ws.focus != nil {
+			m.viewMode = ViewFullNote
+			return m.windowCmd(map[string]string{"vsplit": "v", "hsplit": "s"}[id])
+		}
+	case "float":
+		if m.ws != nil && m.ws.root != nil {
+			m.viewMode = ViewFullNote
+			return m.openFloatExplorer()
+		}
+	case "layout":
+		if !m.restoreLayout("") {
+			return m, m.showToast("nenhum layout salvo para este livro", ToastInfo, 2*time.Second)
+		}
 	case "filter":
 		m.filterTyping = true
 	case "search":

@@ -5,9 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vinizap/lumi/tui-client/domain"
 	"github.com/vinizap/lumi/tui-client/filesystem"
 	"github.com/vinizap/lumi/tui-client/theme"
 )
@@ -261,88 +259,6 @@ func (m Model) navPreviewCol(width, height int) string {
 			s.WriteString(" " + line)
 			s.WriteString("\n")
 		}
-	}
-
-	return lipgloss.NewStyle().
-		Width(width).
-		Height(height).
-		Render(s.String())
-}
-
-func (m Model) renderSplitView() string {
-	var s strings.Builder
-
-	if m.splitMode == "horizontal" {
-		topHeight := m.height / 2
-		bottomHeight := m.height - topHeight - 1
-
-		s.WriteString(m.renderNoteInBox(m.fullNote, m.width, topHeight))
-		s.WriteString("\n")
-		s.WriteString(lipgloss.NewStyle().Foreground(theme.Current.Separator).Render(strings.Repeat("-", m.width)))
-		s.WriteString("\n")
-		s.WriteString(m.renderNoteInBox(m.splitNote, m.width, bottomHeight))
-	} else {
-		leftWidth := m.width / 2
-		rightWidth := m.width - leftWidth - 1
-
-		left := m.renderNoteInBox(m.fullNote, leftWidth, m.height)
-		right := m.renderNoteInBox(m.splitNote, rightWidth, m.height)
-
-		s.WriteString(lipgloss.JoinHorizontal(
-			lipgloss.Top,
-			left,
-			lipgloss.NewStyle().Foreground(theme.Current.Separator).Render("|"),
-			right,
-		))
-	}
-
-	return s.String()
-}
-
-func (m Model) renderNoteInBox(note *domain.Note, width, height int) string {
-	if note == nil {
-		return lipgloss.NewStyle().
-			Width(width).
-			Height(height).
-			Render("No note")
-	}
-
-	var s strings.Builder
-
-	s.WriteString(lipgloss.NewStyle().
-		Bold(true).
-		Foreground(primaryColor).
-		Render(note.Title))
-	s.WriteString("\n\n")
-
-	boxWidth := width - 4
-	if boxWidth < 20 {
-		boxWidth = 20
-	}
-	renderer, err := glamour.NewTermRenderer(
-		glamour.WithStylePath(glamourStyle()),
-		glamour.WithWordWrap(boxWidth),
-	)
-
-	var lines []string
-	if err == nil {
-		rendered, err := renderer.Render(note.Content)
-		if err == nil {
-			lines = strings.Split(rendered, "\n")
-		}
-	}
-	if lines == nil {
-		lines = strings.Split(note.Content, "\n")
-	}
-
-	maxLines := height - 4
-	for i := 0; i < min(len(lines), maxLines); i++ {
-		line := lines[i]
-		if len(line) > width-2 {
-			line = line[:width-2] + "..."
-		}
-		s.WriteString(line)
-		s.WriteString("\n")
 	}
 
 	return lipgloss.NewStyle().

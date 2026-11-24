@@ -354,3 +354,10 @@ func renderProse(c *proseCache, md string, width int) string {
 	}
 	return strings.Join(parts, "\n\n")
 }
+
+// inline renders one line of markdown (kanban card text) through the
+// same prose system and returns it as plain, single-spaced text.
+func (c *proseCache) inline(md string) string {
+	out := stripAnsi(c.render(md, 400))
+	return strings.Join(strings.Fields(out), " ")
+}

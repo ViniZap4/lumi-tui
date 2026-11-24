@@ -1,0 +1,24 @@
+ map                                                                                         canvas
+ ▣ Plano                                               │ ideia
+   ◇ two.md                                            │
+   ¶ ideia                                             │
+ ligações (1)                                          │
+   ideia → two.md  (usa)                               │
+                                                       │
+                                                       │
+                                                       │
+                                                       │
+                                                       │
+                                                       │
+                                                       │
+                                                       │
+                                                       │
+                                                       │
+                                                       │
+                                                       │
+                                                       │
+                                                       │
+                                                       │
+                                                       │
+ j k Tab node   ⏎ gf open file   ⌃w f in split   gx open link   zv JSON source   - explorer   …
+ CANVAS  ~/map.canvas                                                                         local

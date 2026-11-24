@@ -14,6 +14,7 @@ import (
 	"github.com/vinizap/lumi/tui-client/books"
 	"github.com/vinizap/lumi/tui-client/feed"
 	"github.com/vinizap/lumi/tui-client/ui"
+	"github.com/vinizap/lumi/tui-client/vim"
 )
 
 // Version is overridden at link time via -ldflags="-X main.Version=...".
@@ -146,6 +147,8 @@ func main() {
 
 		p := tea.NewProgram(model, tea.WithAltScreen())
 		final, err := p.Run()
+		// the built-in editor may have changed the cursor shape (DECSCUSR)
+		fmt.Fprint(os.Stdout, vim.ResetCursorShape)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)

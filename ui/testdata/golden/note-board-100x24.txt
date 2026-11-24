@@ -1,0 +1,24 @@
+ Board                                                                                       quadro
+ Todo 2                                  │Done 1
+                                         │
+ ☐ alpha                                 │☑ gamma
+                                         │
+ ☐ beta                                  │
+                                         │
+                                         │
+                                         │
+                                         │
+                                         │
+                                         │
+                                         │
+                                         │
+                                         │
+                                         │
+                                         │
+                                         │
+                                         │
+                                         │
+                                         │
+                                         │
+ h l column   j k card   H L move ←→   J K move ↑↓   a o new card   ⏎ i edit   x done   q back   …
+ BOARD  ~/board.md                                                                            local

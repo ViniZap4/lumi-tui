@@ -16,6 +16,8 @@ func (m Model) View() string {
 
 	var body string
 	switch {
+	case m.acct != nil:
+		body = m.renderAccounts()
 	case m.showBooks && m.bookMgr != nil:
 		body = m.renderBooksPicker()
 	case m.showBookDetails && m.bookMgr != nil:
@@ -29,15 +31,9 @@ func (m Model) View() string {
 		case ViewConfig:
 			body = m.renderConfig()
 		case ViewFullNote:
-			switch {
-			case m.showSearch && m.inFileSearch:
-				body = m.renderWithInFileSearch()
-			case m.showNav:
-				body = m.renderWithNavModal(m.renderFullNote())
-			case m.splitMode != "" && m.splitNote != nil:
-				body = m.renderSplitView()
-			default:
-				body = m.renderFullNote()
+			body = m.renderWorkspace()
+			if m.floatExp {
+				body = m.renderFloatExplorer(fitHeight(body, m.contentHeight()))
 			}
 		default:
 			if m.showNav {
@@ -48,6 +44,9 @@ func (m Model) View() string {
 		}
 	}
 	body = fitHeight(body, m.contentHeight())
+	if m.hover != nil && m.viewMode == ViewFullNote {
+		body = fitHeight(m.renderHover(body), m.contentHeight())
+	}
 	if m.showPalette {
 		body = m.overlayCenter(body, m.renderPalette(), true)
 	} else if m.showHelp {
@@ -134,7 +133,7 @@ func (m Model) renderBase() string {
 	case ViewConfig:
 		return m.renderConfig()
 	case ViewFullNote:
-		return m.renderFullNote()
+		return m.renderWorkspace()
 	default:
 		return m.renderTree()
 	}

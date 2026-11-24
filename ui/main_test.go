@@ -2,6 +2,7 @@ package ui
 
 import (
 	"flag"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +11,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 	"github.com/vinizap/lumi/tui-client/theme"
+	"github.com/vinizap/lumi/tui-client/vim"
 )
+
+// openedURLs records what would have been opened in a browser.
+var openedURLs []string
 
 var update = flag.Bool("update", false, "rewrite golden files")
 
@@ -28,6 +33,10 @@ func TestMain(m *testing.M) {
 	os.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, ".cache"))
 	os.Setenv("EDITOR", "true")
 	lipgloss.SetColorProfile(termenv.Ascii)
+	// Never touch the real clipboard, terminal or browser from tests.
+	systemClipboard = &vim.MemClipboard{}
+	termOut = io.Discard
+	openURLFn = func(u string) { openedURLs = append(openedURLs, u) }
 	theme.Resolve("dark", "tokyo-night", "catppuccin-latte")
 	ApplyTheme()
 	code := m.Run()

@@ -219,6 +219,28 @@ type Model struct {
 	// prose caches rendered markdown previews (shared across copies).
 	prose *proseCache
 
+	// --- Part 2: notes workspace (splits, built-in editor, views) ---
+
+	// ws is the pane layout; nil until a note is opened. Shared by
+	// Model copies (pointer).
+	ws *workspace
+	// cfg is the loaded settings (reloaded when settings change).
+	cfg *config.Config
+	// winPending: Ctrl-w was pressed, the next key is a window command.
+	winPending bool
+	// notePrefix is a pending g/z/leader chord in reader/board/canvas.
+	notePrefix string
+	// floatExp shows the floating explorer over the notes.
+	floatExp bool
+	// overlayFrame drives the overlay open animation (0 = settled).
+	overlayFrame int
+	// hover is the K link card.
+	hover *hoverCard
+	// lastShape is the last DECSCUSR sent.
+	lastShape string
+	// accounts screen and sign-in form.
+	acct *accountsScreen
+
 	// initialNotePath holds an absolute path the user passed at the
 	// command line (`lumi some/note.md`). When set, the first
 	// itemsLoadedMsg handler auto-opens the matching note and clears
@@ -242,6 +264,7 @@ func NewModel(rootDir string) Model {
 	)
 
 	return Model{
+		cfg:           cfg,
 		rootDir:       rootDir,
 		currentDir:    rootDir,
 		navDir:        rootDir,

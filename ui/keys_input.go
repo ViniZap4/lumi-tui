@@ -78,6 +78,18 @@ func (m Model) inputErr(err string) (tea.Model, tea.Cmd) {
 // fileops.go; errors keep everything as it was and show a toast.
 func (m Model) submitInput(mode, value string) (tea.Model, tea.Cmd) {
 	switch mode {
+	case "find":
+		if m.ws != nil && m.ws.focus != nil {
+			p := m.ws.focus
+			p.find = strings.TrimSpace(value)
+			if p.find != "" {
+				_, w, _ := m.paneRect(p)
+				lines, _ := m.readerLines(p, w)
+				p.scroll--
+				m.findInReader(p, lines, 1)
+			}
+		}
+		return m, nil
 	case "create":
 		if strings.TrimSpace(value) == "" {
 			return m, m.showToast("Cancelled — name required", ToastInfo, 2*time.Second)
@@ -146,6 +158,10 @@ func (m Model) submitInput(mode, value string) (tea.Model, tea.Cmd) {
 		}
 		m.pendingSelect = to
 		return m, m.loadItems
+	case "config_escape":
+		m.applyConfigChange("escape", value)
+		m.configItems = m.buildConfigItems(m.configCfg)
+		return m, nil
 	case "config_editor":
 		v := strings.TrimSpace(value)
 		if v == "" {
