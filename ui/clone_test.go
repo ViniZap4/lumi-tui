@@ -126,17 +126,28 @@ func toServerBook(t *testing.T, m Model) Model {
 	return m
 }
 
-// finishClone feeds the clone goroutine's messages until it is done.
+// finishClone feeds the clone goroutine's messages until it is done (a
+// message taken by an abandoned test command is recovered from the
+// flow's finished result).
 func finishClone(t *testing.T, m Model) Model {
 	t.Helper()
-	for i := 0; i < 50 && m.clone != nil && m.clone.running; i++ {
-		select {
-		case msg := <-m.clone.ch:
-			next, cmd := m.Update(msg)
-			m = settle(next.(Model), dropWait(cmd))
-		case <-time.After(5 * time.Second):
+	deadline := time.Now().Add(10 * time.Second)
+	for m.clone != nil && m.clone.running {
+		if time.Now().After(deadline) {
 			t.Fatal("clone never finished")
 		}
+		var msg tea.Msg
+		select {
+		case msg = <-m.clone.ch:
+		case <-time.After(50 * time.Millisecond):
+			if d := m.clone.finished.Load(); d != nil {
+				msg = *d
+			} else {
+				continue
+			}
+		}
+		next, cmd := m.Update(msg)
+		m = settle(next.(Model), dropWait(cmd))
 	}
 	return m
 }

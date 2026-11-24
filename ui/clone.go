@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -48,6 +49,9 @@ type cloneFlow struct {
 	ch          chan tea.Msg
 	dest        string // validated absolute destination
 	retriedAuth bool
+	// finished holds the result as soon as the goroutine ends, so the
+	// outcome is never lost even if a waiting command was abandoned.
+	finished atomic.Pointer[cloneDoneMsg]
 }
 
 // cloneProgressMsg / cloneDoneMsg come from the clone goroutine.
@@ -283,7 +287,9 @@ func (m Model) runClone() (tea.Model, tea.Cmd) {
 	go func() {
 		defer cancel()
 		res, err := bookclone.Run(ctx, opts)
-		ch <- cloneDoneMsg{ch: ch, res: res, err: err}
+		done := cloneDoneMsg{ch: ch, res: res, err: err}
+		f.finished.Store(&done)
+		ch <- done
 	}()
 	return m, waitClone(ch)
 }
