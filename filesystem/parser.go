@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/vinizap/lumi/tui-client/domain"
@@ -406,4 +408,56 @@ func ListFolders(root string) ([]*domain.Folder, error) {
 	}
 
 	return folders, nil
+}
+
+// ReadRaw returns a note file split into its frontmatter block (the raw
+// bytes including both `---` fences and what follows up to the body,
+// "" when there is none) and its body (leading/trailing whitespace
+// trimmed, as ReadNote returns it).
+func ReadRaw(path string) (head, body string, err error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", "", err
+	}
+	h, b := splitHead(data)
+	return h, string(bytes.TrimSpace(b)), nil
+}
+
+// splitHead splits data into the verbatim frontmatter head (fences and
+// the blank lines after them) and the body.
+func splitHead(data []byte) (string, []byte) {
+	_, body, ok := splitFrontmatter(data)
+	if !ok {
+		return "", data
+	}
+	headLen := len(data) - len(body)
+	trimmed := bytes.TrimLeft(body, "\r\n")
+	headLen += len(body) - len(trimmed)
+	return string(data[:headLen]), trimmed
+}
+
+var reUpdatedAt = regexp.MustCompile(`(?m)^updated_at:[^\n]*$`)
+
+// WriteBody replaces a note's body and keeps its frontmatter byte for
+// byte (unknown keys such as `kanban-plugin` survive, unlike WriteNote's
+// re-marshal). When bump is set and the frontmatter has an
+// `updated_at:` line, only that value changes. Atomic.
+func WriteBody(path, body string, bump bool, now time.Time) error {
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	head, _ := splitHead(data)
+	if head != "" && bump {
+		head = reUpdatedAt.ReplaceAllString(head, "updated_at: "+now.Format(time.RFC3339))
+	}
+	if head != "" && !strings.HasSuffix(head, "\n") {
+		head += "\n"
+	}
+	out := head + strings.TrimRight(body, "\n") + "\n"
+	perm := os.FileMode(0o644)
+	if info, err := os.Stat(path); err == nil {
+		perm = info.Mode().Perm()
+	}
+	return atomicWriteFile(path, []byte(out), perm)
 }

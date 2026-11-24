@@ -29,8 +29,9 @@ type Manager struct {
 	ListAll    func(ctx context.Context, accts []account.Account) ([]books.Listing, []error)
 	Now        func() time.Time
 
-	feeds  map[string]*feedInfo
-	bstate map[string]*bookInfo
+	feeds   map[string]*feedInfo
+	bstate  map[string]*bookInfo
+	cancels map[string]context.CancelFunc
 
 	notify  chan struct{}
 	notices []string
@@ -96,6 +97,7 @@ func NewManager(store *books.Store, accounts []account.Account) *Manager {
 		cacheDir: dir,
 		feeds:    map[string]*feedInfo{},
 		bstate:   map[string]*bookInfo{},
+		cancels:  map[string]context.CancelFunc{},
 		notify:   make(chan struct{}, 1),
 		Now:      time.Now,
 	}
@@ -136,20 +138,75 @@ func (m *Manager) Start(ctx context.Context) {
 	}
 	m.mu.Unlock()
 	for _, a := range accts {
-		a := a
-		ch := make(chan Update, 16)
-		go Run(ctx, m.ConnConfig(a), ch)
-		go func() {
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case u := <-ch:
-					m.handle(a, u)
-				}
-			}
-		}()
+		m.startFeed(ctx, a)
 	}
+	m.ping()
+}
+
+// startFeed opens one account's stream with its own cancel.
+func (m *Manager) startFeed(ctx context.Context, a account.Account) {
+	fctx, cancel := context.WithCancel(ctx)
+	m.mu.Lock()
+	m.cancels[acctKey(a.Server, a.Username)] = cancel
+	m.mu.Unlock()
+	ch := make(chan Update, 16)
+	go Run(fctx, m.ConnConfig(a), ch)
+	go func() {
+		for {
+			select {
+			case <-fctx.Done():
+				return
+			case u := <-ch:
+				m.handle(a, u)
+			}
+		}
+	}()
+}
+
+// Accounts returns a copy of the accounts the manager runs feeds for.
+func (m *Manager) Accounts() []account.Account {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]account.Account(nil), m.accounts...)
+}
+
+// AddAccount starts (or restarts, after a new sign-in) an account's feed
+// and reconciles its books. Safe before Start (the feed opens on Start).
+func (m *Manager) AddAccount(a account.Account) {
+	m.RemoveAccount(a.Server, a.Username)
+	m.mu.Lock()
+	m.accounts = append(m.accounts, a)
+	started := m.ctx != nil
+	if started {
+		m.feeds[acctKey(a.Server, a.Username)] = &feedInfo{state: books.FeedConnecting}
+	}
+	ctx := m.ctx
+	m.mu.Unlock()
+	if started {
+		m.startFeed(ctx, a)
+		go m.refreshBooks()
+	}
+	m.ping()
+}
+
+// RemoveAccount stops an account's feed (sign out / remove). Its books
+// stay in the registry and show "Precisa entrar".
+func (m *Manager) RemoveAccount(server, username string) {
+	key := acctKey(server, username)
+	m.mu.Lock()
+	if c := m.cancels[key]; c != nil {
+		c()
+		delete(m.cancels, key)
+	}
+	delete(m.feeds, key)
+	kept := m.accounts[:0]
+	for _, a := range m.accounts {
+		if acctKey(a.Server, a.Username) != key {
+			kept = append(kept, a)
+		}
+	}
+	m.accounts = kept
+	m.mu.Unlock()
 	m.ping()
 }
 

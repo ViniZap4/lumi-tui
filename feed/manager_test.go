@@ -214,3 +214,35 @@ func TestManagerLocalEditPushesThreeWayAndShowsPendingOffline(t *testing.T) {
 		t.Fatalf("state = %v", v.Status.State)
 	}
 }
+
+func TestManagerAddRemoveAccountAtRuntime(t *testing.T) {
+	reg := &books.Registry{}
+	reg.Add(books.Book{ID: "b", Name: "B", Kind: books.KindBound, ServerURL: "https://srv.example", Account: "u", VaultID: vid})
+	m := NewManager(&books.Store{Registry: reg}, nil)
+	m.SetCacheDir(t.TempDir())
+	m.ConnConfig = func(a account.Account) ConnConfig {
+		return ConnConfig{ServerURL: "http://127.0.0.1:1", Token: a.Token}
+	}
+	m.ListAll = func(context.Context, []account.Account) ([]books.Listing, []error) { return nil, nil }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m.Start(ctx)
+	if v, _ := m.View("b"); v.Status.State != books.StateSignIn {
+		t.Fatalf("no account: %v", v.Status.State)
+	}
+	m.AddAccount(account.Account{Server: "https://srv.example", Username: "u", Token: "t"})
+	if len(m.Accounts()) != 1 {
+		t.Fatal("account not added")
+	}
+	if v, _ := m.View("b"); v.Status.State == books.StateSignIn {
+		t.Fatalf("still sign-in after AddAccount")
+	}
+	m.AddAccount(account.Account{Server: "https://srv.example", Username: "u", Token: "t2"})
+	if len(m.Accounts()) != 1 || m.Accounts()[0].Token != "t2" {
+		t.Fatal("re-sign-in must replace the account")
+	}
+	m.RemoveAccount("https://srv.example", "u")
+	if v, _ := m.View("b"); v.Status.State != books.StateSignIn || len(m.Accounts()) != 0 {
+		t.Fatalf("after remove: %v", v.Status.State)
+	}
+}
