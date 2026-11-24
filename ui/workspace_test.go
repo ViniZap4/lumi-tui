@@ -511,3 +511,11 @@ func TestEscapeSequenceSettingAndFlushOnExit(t *testing.T) {
 		t.Fatalf("FlushEdits did not save:\n%s", data)
 	}
 }
+
+func TestExpandImagesReplacesPlaceholders(t *testing.T) {
+	imageRenders.Store("/x/cat.png@40", []string{"IMG-ROW-1", "IMG-ROW-2"})
+	out := expandImages([]string{"before", "  \x1b[1mLUMIIMG0X\x1b[0m", "after"}, []string{"/x/cat.png"}, 40)
+	if strings.Join(out, "|") != "before|IMG-ROW-1|IMG-ROW-2|after" {
+		t.Fatalf("%q", out)
+	}
+}

@@ -38,7 +38,7 @@ Built with [Go](https://golang.org) and [Bubbletea](https://github.com/charmbrac
   web address per server; the books picker shows the sync state
 - `lumi open [<book>[/<note>]] [--web]` opens the Lumi app (macOS,
   `lumi://`) or the web client
-- Inline images in the explorer preview (timg/chafa/viu), wiki-links, 12 themes
+- Inline images in the reader (timg/chafa/viu), wiki-links, 12 themes
 
 ## Build & Run
 

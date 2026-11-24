@@ -317,3 +317,11 @@ func renderITerm2Protocol(imagePath string) string {
 	}
 	return seq
 }
+
+// TextRenderer reports whether images render as ANSI text (timg, chafa,
+// viu): those lines can be laid out like text inside panes. Native
+// protocols (kitty, iTerm2) cannot be clipped into panes.
+func TextRenderer() bool {
+	detectRenderer()
+	return rendererName == "timg" || rendererName == "chafa" || rendererName == "viu"
+}

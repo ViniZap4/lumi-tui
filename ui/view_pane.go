@@ -2,13 +2,16 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 	"github.com/vinizap/lumi/tui-client/canvas"
+	"github.com/vinizap/lumi/tui-client/image"
 	"github.com/vinizap/lumi/tui-client/theme"
 	"github.com/vinizap/lumi/tui-client/vim"
 )
@@ -213,7 +216,11 @@ func readerWidth(w int) int { return max(20, min(w-4, 100)) }
 // the source landed (for Tab focus and highlighting).
 func (m Model) readerLines(p *notePane, w int) ([]string, []linkPos) {
 	body := p.buf.eng.Text()
-	out := strings.Split(strings.TrimRight(m.prose.render(body, readerWidth(w)), "\n"), "\n")
+	md, imgs := imagePlaceholders(body, p.buf.path)
+	out := strings.Split(strings.TrimRight(m.prose.render(md, readerWidth(w)), "\n"), "\n")
+	if len(imgs) > 0 {
+		out = expandImages(out, imgs, readerWidth(w))
+	}
 	links := findLinks(body)
 	pos := make([]linkPos, len(links))
 	plain := make([][]rune, len(out))
@@ -689,6 +696,64 @@ func (m Model) renderCanvas(p *notePane, w, h int) []string {
 	sep := lipgloss.NewStyle().Foreground(t.Separator).Render("│ ")
 	for i := range lb {
 		out = append(out, lb[i]+sep+rb[i])
+	}
+	return out
+}
+
+// --- inline images (reader) --------------------------------------------
+
+// imagePlaceholders swaps local image lines for tokens the prose
+// renderer keeps intact; expandImages puts the rendered image there.
+// Only ANSI-text renderers (timg/chafa/viu) are used inside panes;
+// otherwise glamour shows the image as a link.
+func imagePlaceholders(body, notePath string) (string, []string) {
+	if !strings.Contains(body, "![") || !image.TextRenderer() {
+		return body, nil
+	}
+	var imgs []string
+	lines := strings.Split(body, "\n")
+	for i, l := range lines {
+		if !image.HasImage(l) {
+			continue
+		}
+		src := image.ExtractImagePath(l)
+		if image.IsEmbed(src) || image.IsVideo(src) || image.IsPdf(src) {
+			continue
+		}
+		path := image.GetImagePath(l, notePath)
+		if path == "" {
+			continue
+		}
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		lines[i] = fmt.Sprintf("LUMIIMG%dX", len(imgs))
+		imgs = append(imgs, path)
+	}
+	return strings.Join(lines, "\n"), imgs
+}
+
+var imageRenders sync.Map // "path@width" → rendered lines
+
+func expandImages(lines, imgs []string, w int) []string {
+	var out []string
+	for _, l := range lines {
+		plain := stripAnsi(l)
+		idx := -1
+		if i := strings.Index(plain, "LUMIIMG"); i >= 0 {
+			fmt.Sscanf(plain[i:], "LUMIIMG%dX", &idx)
+		}
+		if idx < 0 || idx >= len(imgs) {
+			out = append(out, l)
+			continue
+		}
+		key := fmt.Sprintf("%s@%d", imgs[idx], w)
+		v, ok := imageRenders.Load(key)
+		if !ok {
+			v = strings.Split(strings.TrimRight(image.Render(imgs[idx], w), "\n"), "\n")
+			imageRenders.Store(key, v)
+		}
+		out = append(out, v.([]string)...)
 	}
 	return out
 }
