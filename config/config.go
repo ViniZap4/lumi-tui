@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -29,6 +31,29 @@ type Config struct {
 	PaneNav     bool // Ctrl-h/j/k/l pane focus
 	Mouse       bool // click / wheel / double-click
 	ShowHidden  bool // dot files and folders in listings (`.`)
+
+	// Notes (web/Apple parity, SPEC-PARTE2 §9)
+	DefaultEditor   string   // "internal" (built-in vim) | "external" ($VISUAL/$EDITOR or Editor)
+	OpenIn          string   // "reader" | "source": what Enter on a note opens
+	EscapeSequences []string // insert-mode sequences acting as <Esc> ("jj", "jk")
+	EscapeTimeoutMs int      // ms between the keys of a sequence
+	Vimrc           bool     // apply ~/.config/lumi/vimrc (safe subset)
+	Autosave        bool     // debounced save of built-in edits
+	AutosaveMs      int
+	ClipboardSync   bool // yank/delete also go to the system clipboard
+	ReduceMotion    bool // no overlay frame animation
+	// WebOrigins maps a server URL to its web client origin, for
+	// `lumi open --web` (default: lumi-api.<host> → lumi.<host>).
+	WebOrigins map[string]string
+}
+
+// VimrcPath is where the built-in editor reads the user's vimrc.
+func VimrcPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".config", "lumi", "vimrc")
 }
 
 func Load() *Config {
@@ -46,6 +71,14 @@ func Load() *Config {
 		ShowLegend:      true,
 		PaneNav:         true,
 		Mouse:           true,
+		DefaultEditor:   "internal",
+		OpenIn:          "reader",
+		EscapeTimeoutMs: 300,
+		Vimrc:           true,
+		Autosave:        true,
+		AutosaveMs:      1000,
+		ClipboardSync:   true,
+		WebOrigins:      map[string]string{},
 	}
 
 	// UserHomeDir falls back to $HOME on Unix and the registry on
@@ -123,6 +156,44 @@ func Load() *Config {
 			cfg.Mouse = value != "false"
 		case "show_hidden":
 			cfg.ShowHidden = value == "true"
+		case "default_editor":
+			if value == "internal" || value == "external" {
+				cfg.DefaultEditor = value
+			}
+		case "open_in":
+			if value == "reader" || value == "source" {
+				cfg.OpenIn = value
+			}
+		case "escape_sequences":
+			cfg.EscapeSequences = nil
+			for _, s := range strings.Split(value, ",") {
+				s = strings.TrimSpace(s)
+				if r := []rune(s); len(r) >= 2 && len(r) <= 4 && !strings.ContainsAny(s, " <") && len(cfg.EscapeSequences) < 8 {
+					cfg.EscapeSequences = append(cfg.EscapeSequences, s)
+				}
+			}
+		case "escape_timeout_ms":
+			if n, err := strconv.Atoi(value); err == nil && n >= 100 && n <= 1000 {
+				cfg.EscapeTimeoutMs = n
+			}
+		case "vimrc":
+			cfg.Vimrc = value != "false"
+		case "autosave":
+			cfg.Autosave = value != "false"
+		case "autosave_ms":
+			if n, err := strconv.Atoi(value); err == nil && n >= 200 && n <= 10000 {
+				cfg.AutosaveMs = n
+			}
+		case "clipboard_sync":
+			cfg.ClipboardSync = value != "false"
+		case "reduce_motion":
+			cfg.ReduceMotion = value == "true"
+		case "web_origins":
+			for _, pair := range strings.Fields(value) {
+				if k, v, ok := strings.Cut(pair, "="); ok && strings.HasPrefix(v, "http") {
+					cfg.WebOrigins[strings.TrimRight(k, "/")] = strings.TrimRight(v, "/")
+				}
+			}
 		}
 	}
 
@@ -175,10 +246,44 @@ show_legend: %s
 pane_nav: %s
 mouse: %s
 show_hidden: %s
+
+# Notes and the built-in editor
+default_editor: %s
+open_in: %s
+escape_sequences: %s
+escape_timeout_ms: %d
+vimrc: %s
+autosave: %s
+autosave_ms: %d
+clipboard_sync: %s
+reduce_motion: %s
+web_origins: %s
 `, editorCmd, c.ThemeMode, c.DarkTheme, c.LightTheme, showLn, c.CursorStyle, c.PreviewLines, c.SearchType,
-		b(c.ShowPreview), b(c.ShowLegend), b(c.PaneNav), b(c.Mouse), b(c.ShowHidden))
+		b(c.ShowPreview), b(c.ShowLegend), b(c.PaneNav), b(c.Mouse), b(c.ShowHidden),
+		orDefault(c.DefaultEditor, "internal"), orDefault(c.OpenIn, "reader"), strings.Join(c.EscapeSequences, ","),
+		c.EscapeTimeoutMs, b(c.Vimrc), b(c.Autosave), c.AutosaveMs, b(c.ClipboardSync), b(c.ReduceMotion), c.webOrigins())
 
 	return os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(content), 0644)
+}
+
+func orDefault(v, d string) string {
+	if v == "" {
+		return d
+	}
+	return v
+}
+
+func (c *Config) webOrigins() string {
+	keys := make([]string, 0, len(c.WebOrigins))
+	for k := range c.WebOrigins {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var parts []string
+	for _, k := range keys {
+		parts = append(parts, k+"="+c.WebOrigins[k])
+	}
+	return strings.Join(parts, " ")
 }
 
 func parseInt(s string) int {

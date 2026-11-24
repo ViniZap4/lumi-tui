@@ -33,6 +33,7 @@ Usage:
   lumi vault clone <url>/<slug> [<path>]   pull a server vault locally (Phase 5)
   lumi vault transfer <url>/<slug> <username>   hand vault ownership to a member (v3)
   lumi vault copy <url>/<slug> <recipient>      share an independent copy (v3)
+  lumi open [<book>[/<note>]] [--web]   open in the Lumi app (macOS) or the web client
   lumi --help, -h            show this help
   lumi --version, -v         print version
 
@@ -57,6 +58,8 @@ func main() {
 			os.Exit(runBooksCmd(append([]string{"list"}, os.Args[2:]...), os.Stdout, os.Stderr))
 		case "vault":
 			os.Exit(runVaultCmd(os.Args[2:], os.Stdout, os.Stderr))
+		case "open":
+			os.Exit(runOpenCmd(os.Args[2:], os.Stdout, os.Stderr))
 		}
 	}
 
