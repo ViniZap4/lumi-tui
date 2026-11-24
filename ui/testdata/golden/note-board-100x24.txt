@@ -1,4 +1,4 @@
- ≡ notes  ▥ Board                                                                            quadro
+ ≡ notes  ▥ Board                                                                  quadro · leitura
  Todo 2                                  │Done 1
                                          │
  ☐ alpha                                 │☑ gamma
@@ -19,6 +19,6 @@
                                          │
                                          │
                                          │
-                                         │
- h l column   j k card   H L move ←→   J K move ↑↓   a o new card   ⏎ i edit   x done   …
- BOARD  ▥ ~/board.md                                                                          local
+ leitura · i edita o quadro · zv fonte
+ h l column   j k Tab card   i e edit board   ⏎ gf follow link   K link card   / filter   …
+ READ  ▥ ~/board.md                                                                           local

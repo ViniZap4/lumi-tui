@@ -1,4 +1,4 @@
- ≡ notes  ◈ map                                                                              canvas
+ ≡ notes  ◈ map                                                                    canvas · leitura
  ▣ Plano                                               │ ideia
    ◇ two.md                                            │
    ¶ ideia                                             │

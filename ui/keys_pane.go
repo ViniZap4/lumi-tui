@@ -142,9 +142,21 @@ func (m Model) leaderKey() string {
 
 // cycleView is zv: reader → source → source+preview (→ board/canvas).
 func (m *Model) cycleView(p *notePane) {
+	// boards: Reading → Edit → Source (SPEC-PARTE2 §5a)
+	if p.buf.isBoard && p.view == viewBoard && !p.bedit {
+		p.bedit = true
+		m.statusMsg = "vista: " + p.modeLabel()
+		return
+	}
+	if p.buf.isBoard && p.view == viewSource {
+		m.setView(p, viewBoard)
+		p.bedit = false
+		m.statusMsg = "vista: " + p.modeLabel()
+		return
+	}
 	order := []paneView{viewReader, viewSource, viewSplit}
 	if p.buf.isBoard {
-		order = []paneView{viewBoard, viewSource, viewReader}
+		order = []paneView{viewBoard, viewSource}
 	}
 	if p.buf.isCanvas {
 		order = []paneView{viewCanvas, viewSource}
@@ -168,7 +180,7 @@ func (m *Model) setView(p *notePane, v paneView) {
 	}
 	p.view = v
 	p.previewFocus = false
-	m.statusMsg = "vista: " + v.String()
+	m.statusMsg = "vista: " + p.modeLabel()
 	m.saveLayout()
 }
 
@@ -441,8 +453,18 @@ func (m Model) exCommand(p *notePane, ef vim.Effect) (Model, tea.Cmd) {
 		return m, m.onlyPane()
 	case "zoom", "zo":
 		m.toggleZoom()
-	case "reader", "read", "leitura":
-		m.setView(p, viewReader)
+	case "reader", "read", "leitura", "reading":
+		// Reading: the board / canvas in its read-only mode, else prose
+		switch {
+		case p.buf.isBoard:
+			m.setView(p, viewBoard)
+			p.bedit = false
+		case p.buf.isCanvas:
+			m.setView(p, viewCanvas)
+		default:
+			m.setView(p, viewReader)
+		}
+		m.statusMsg = "vista: " + p.modeLabel()
 		return m, m.shapeCmd()
 	case "source", "fonte":
 		m.setView(p, viewSource)
@@ -452,8 +474,13 @@ func (m Model) exCommand(p *notePane, ef vim.Effect) (Model, tea.Cmd) {
 		} else {
 			m.setView(p, viewSplit)
 		}
-	case "board", "quadro":
+	case "board", "quadro", "editboard":
+		// the board's Edit mode
 		m.setView(p, viewBoard)
+		if p.view == viewBoard {
+			p.bedit = true
+			m.statusMsg = "vista: " + p.modeLabel()
+		}
 		return m, m.shapeCmd()
 	case "canvas":
 		m.setView(p, viewCanvas)
@@ -635,6 +662,10 @@ func (m Model) focusedLink(p *notePane) (noteLink, bool) {
 	switch p.view {
 	case viewSource, viewSplit, viewReader:
 		return m.linkUnderCursor(p)
+	case viewBoard:
+		if ls := p.cardLinks(p.board()); len(ls) > 0 {
+			return ls[0], true
+		}
 	}
 	return noteLink{}, false
 }

@@ -70,7 +70,9 @@ type notePane struct {
 	pv *readerDoc
 	// source+preview: the preview has keyboard focus
 	previewFocus bool
-	// board
+	// board: bedit is the Edit mode (SPEC-PARTE2 §5a); false is Reading,
+	// where nothing changes the note
+	bedit       bool
 	bcol, bcard int
 	binput      string // "", "card", "edit", "column", "filter"
 	bvalue      string

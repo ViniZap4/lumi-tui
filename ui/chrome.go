@@ -81,6 +81,9 @@ func (m Model) legendContext() LegendContext {
 		}
 		switch p.view {
 		case viewBoard:
+			if !p.bedit {
+				return CtxBoardRead
+			}
 			return CtxBoard
 		case viewCanvas:
 			return CtxCanvas
@@ -187,8 +190,10 @@ func (m Model) modeName() string {
 			return e.Mode().String()
 		}
 		return "VISUAL"
+	case CtxBoardRead:
+		return "READ"
 	case CtxBoard:
-		return "BOARD"
+		return "EDIT"
 	case CtxCanvas:
 		return "CANVAS"
 	case CtxWindow:

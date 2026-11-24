@@ -265,12 +265,16 @@ func TestKanbanBoardKeys(t *testing.T) {
 	m := newTreeModel(t, dir)
 	m.width, m.height = 120, 30
 	m = openNamed(t, m, "Board")
-	if m.ws.focus.view != viewBoard || m.legendContext() != CtxBoard {
-		t.Fatalf("kanban opens as a board: %v", m.ws.focus.view)
+	if m.ws.focus.view != viewBoard || m.legendContext() != CtxBoardRead {
+		t.Fatalf("kanban opens as a board in Reading: %v", m.ws.focus.view)
 	}
 	read := func() string {
 		data, _ := os.ReadFile(filepath.Join(dir, "board.md"))
 		return string(data)
+	}
+	m = keys(t, m, "i")
+	if m.legendContext() != CtxBoard || m.modeName() != "EDIT" {
+		t.Fatal("i → Edit")
 	}
 	m = keys(t, m, "x")
 	if !strings.Contains(read(), "- [x] alpha") {
@@ -300,6 +304,78 @@ func TestKanbanBoardKeys(t *testing.T) {
 	m = keys(t, m, "z", "v")
 	if m.ws.focus.view != viewSource {
 		t.Fatal("zv → source")
+	}
+}
+
+func TestKanbanReadingNeverWrites(t *testing.T) {
+	dir := notesVault(t)
+	path := filepath.Join(dir, "board.md")
+	mustWrite(t, path, "---\ntitle: Board\nkanban-plugin: board\n---\n\n## Todo\n\n- [ ] alpha [[two]]\n- [ ] beta\n\n## Done\n\n- [x] gamma\n")
+	before, _ := os.ReadFile(path)
+	m := newTreeModel(t, dir)
+	m.width, m.height = 120, 30
+	m = openNamed(t, m, "Board")
+	for _, k := range []string{"x", " ", "H", "L", "J", "a", "o", "A", "d", "d", "y", "u", "D", "j", "l", "h", "k", "tab", "shift+tab"} {
+		m = keys(t, m, k)
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(before) || m.ws.focus.buf.dirty() {
+		t.Fatalf("Reading changed the board:\n%s", after)
+	}
+	if m.ws.focus.bedit || m.ws.focus.binput != "" {
+		t.Fatal("still Reading, no prompt")
+	}
+	// links on the focused card: K card, ⏎ follows
+	m.ws.focus.bcol, m.ws.focus.bcard = 0, 0
+	m = keys(t, m, "K")
+	if m.hover == nil || m.hover.note == nil || m.hover.note.Title != "Two" {
+		t.Fatal("K on a card link")
+	}
+	m = keys(t, m, "esc", "ctrl+w", "f")
+	if len(m.ws.leaves()) != 2 || m.ws.focus.buf.note.Title != "Two" {
+		t.Fatal("⌃w f on a card link")
+	}
+	m = keys(t, m, "ctrl+w", "q")
+	// Edit and back: Esc / q return to Reading
+	m = keys(t, m, "e")
+	if !m.ws.focus.bedit || !strings.Contains(stripAnsi(m.View()), "quadro · edição") {
+		t.Fatal("e → Edit")
+	}
+	m = keys(t, m, "esc")
+	if m.ws.focus.bedit {
+		t.Fatal("Esc → Reading")
+	}
+	m = keys(t, m, "i", "q")
+	if m.ws.focus.bedit || len(m.ws.leaves()) != 1 {
+		t.Fatal("q in Edit → Reading (not close)")
+	}
+	// zv: Reading → Edit → Source → Reading
+	m = keys(t, m, "z", "v")
+	if !m.ws.focus.bedit {
+		t.Fatal("zv → Edit")
+	}
+	m = keys(t, m, "z", "v")
+	if m.ws.focus.view != viewSource {
+		t.Fatal("zv → Source")
+	}
+	m = keys(t, m, ":")
+	m = typeText(t, m, "reader")
+	m = keys(t, m, "enter")
+	if m.ws.focus.view != viewBoard || m.ws.focus.bedit {
+		t.Fatalf(":reader → board Reading (%v)", m.ws.focus.view)
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Fatalf("modes changed the file:\n%s", after)
+	}
+}
+
+func TestCanvasEditHint(t *testing.T) {
+	dir := notesVault(t)
+	m := newTreeModel(t, dir)
+	m.width, m.height = 120, 30
+	m = openNamed(t, m, "map")
+	m = keys(t, m, "i")
+	if m.ws.focus.view != viewCanvas || !strings.Contains(m.statusMsg, "app ou na web") {
+		t.Fatalf("i in a canvas: %v %q", m.ws.focus.view, m.statusMsg)
 	}
 }
 

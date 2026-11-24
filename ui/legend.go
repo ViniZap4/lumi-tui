@@ -31,16 +31,18 @@ const (
 	CtxDetails  LegendContext = "details"
 	CtxHome     LegendContext = "home"
 	// Part 2 (notes workspace)
-	CtxEditor   LegendContext = "editor" // built-in editor, normal mode
-	CtxInsert   LegendContext = "insert"
-	CtxCmdline  LegendContext = "cmdline"
-	CtxBoard    LegendContext = "board"
-	CtxCanvas   LegendContext = "canvas"
-	CtxWindow   LegendContext = "window" // Ctrl-w pending
-	CtxFloat    LegendContext = "float"  // floating explorer (list column)
-	CtxHover    LegendContext = "hover"
-	CtxAccounts LegendContext = "accounts"
-	CtxSplitPre LegendContext = "splitpreview"
+	CtxEditor  LegendContext = "editor" // built-in editor, normal mode
+	CtxInsert  LegendContext = "insert"
+	CtxCmdline LegendContext = "cmdline"
+	CtxBoard   LegendContext = "board" // board Edit mode
+	// CtxBoardRead: a board in Reading (read-only).
+	CtxBoardRead LegendContext = "boardread"
+	CtxCanvas    LegendContext = "canvas"
+	CtxWindow    LegendContext = "window" // Ctrl-w pending
+	CtxFloat     LegendContext = "float"  // floating explorer (list column)
+	CtxHover     LegendContext = "hover"
+	CtxAccounts  LegendContext = "accounts"
+	CtxSplitPre  LegendContext = "splitpreview"
 	// CtxReadVisual: a visual selection in the reader / preview.
 	CtxReadVisual LegendContext = "readvisual"
 )
@@ -88,7 +90,7 @@ func legendFor(ctx LegendContext, pending string) []LegendItem {
 		}
 	}
 	switch ctx {
-	case CtxReader, CtxBoard, CtxCanvas:
+	case CtxReader, CtxBoard, CtxBoardRead, CtxCanvas:
 		switch chord {
 		case "g":
 			return legendNoteG
@@ -112,13 +114,19 @@ func legendFor(ctx LegendContext, pending string) []LegendItem {
 	case CtxBoard:
 		return []LegendItem{
 			{"h l", "column"}, {"j k", "card"}, {"H L", "move ←→"}, {"J K", "move ↑↓"}, {"a o", "new card"},
-			{"⏎ i", "edit"}, {"x", "done"}, {"dd", "delete"}, {"A", "new column"}, {"/", "filter"},
-			{"zv", "source"}, {"e E", "editors"}, {"-", "explorer"}, {"⌃w", "panes"}, {"q", "close"},
+			{"⏎ i", "edit card"}, {"x", "done"}, {"dd", "delete"}, {"A", "new column"}, {"/", "filter"},
+			{"Esc q", "reading"}, {"zv", "source"}, {"-", "explorer"}, {"⌃w", "panes"},
+		}
+	case CtxBoardRead:
+		return []LegendItem{
+			{"h l", "column"}, {"j k Tab", "card"}, {"i e", "edit board"}, {"⏎ gf", "follow link"},
+			{"K", "link card"}, {"/", "filter"}, {"zv", "edit → source"}, {"-", "explorer"}, {"⌃w", "panes"},
+			{"q", "close"},
 		}
 	case CtxCanvas:
 		return []LegendItem{
 			{"j k Tab", "node"}, {"⏎ gf", "open file"}, {"⌃w f", "in split"}, {"gx", "open link"},
-			{"zv", "JSON source"}, {"-", "explorer"}, {"⌃w", "panes"}, {"q", "close"},
+			{"zv", "JSON source"}, {"i", "edit (app/web)"}, {"-", "explorer"}, {"⌃w", "panes"}, {"q", "close"},
 		}
 	case CtxFloat:
 		return []LegendItem{

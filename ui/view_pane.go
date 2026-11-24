@@ -173,7 +173,7 @@ func (m Model) renderPane(p *notePane, w, h int, origin bool) []string {
 	if p.buf.saveErr != "" {
 		marks += " ⚠"
 	}
-	view := p.view.String()
+	view := p.modeLabel()
 	if p.view == viewSplit && p.previewFocus {
 		view += " (prévia)"
 	}
@@ -523,6 +523,8 @@ func (m Model) renderBoard(p *notePane, w, h int) []string {
 		footer = lipgloss.NewStyle().Foreground(t.Warning).Bold(true).Render(" apagar este cartão? y/n")
 	case p.bfilter != "":
 		footer = lipgloss.NewStyle().Foreground(t.Accent).Render(" filtro: " + p.bfilter + "  (Esc limpa)")
+	case !p.bedit:
+		footer = lipgloss.NewStyle().Foreground(t.TextDim).Render(" leitura · i edita o quadro · zv fonte")
 	}
 	bodyH := h
 	if footer != "" {

@@ -51,6 +51,9 @@ func (m Model) updateBoard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	p := m.ws.focus
 	key := msg.String()
 	b := p.board()
+	if !p.bedit && p.binput != "filter" {
+		return m.updateBoardReading(p, b, key)
+	}
 	if p.binput != "" {
 		switch key {
 		case "esc":
@@ -209,11 +212,15 @@ func (m Model) updateBoard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "/":
 		p.binput, p.bvalue = "filter", p.bfilter
 		return m, nil
-	case "esc":
-		if p.bfilter != "" {
+	case "esc", "q":
+		if key == "esc" && p.bfilter != "" {
 			p.bfilter = ""
 			return m, nil
 		}
+		// Esc / q with nothing pending: back to Reading
+		p.bedit = false
+		m.statusMsg = "vista: " + p.modeLabel()
+		return m, nil
 	case "u":
 		// undo the last board change (the buffer keeps the history)
 		before := p.buf.eng.Gen()
@@ -221,6 +228,138 @@ func (m Model) updateBoard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if p.buf.eng.Gen() != before {
 			return m, m.saveBuffer(p.buf)
 		}
+		return m, nil
+	}
+	if mm, cmd, ok := m.commonNoteKey(key); ok {
+		return mm, cmd
+	}
+	return m, nil
+}
+
+// --- board Reading (SPEC-PARTE2 §5a) ------------------------------------
+
+// modeLabel is the pane header's mode: leitura / fonte / fonte+prévia,
+// "quadro · leitura" / "quadro · edição", "canvas · leitura".
+func (p *notePane) modeLabel() string {
+	switch p.view {
+	case viewBoard:
+		if p.bedit {
+			return "quadro · edição"
+		}
+		return "quadro · leitura"
+	case viewCanvas:
+		return "canvas · leitura"
+	}
+	return p.view.String()
+}
+
+// cardLinks are the links in the focused card (title and nested lines).
+func (p *notePane) cardLinks(b *kanban.Board) []noteLink {
+	ci := p.cardIndex(b)
+	if ci < 0 {
+		return nil
+	}
+	cd := b.Columns[p.bcol].Cards[ci]
+	return findLinks(cd.Title + "\n" + strings.Join(cd.Body, "\n"))
+}
+
+// readOnlyHint is shown when a key would change a board in Reading.
+const readOnlyHint = "leitura: nada muda aqui — i edita o quadro"
+
+// updateBoardReading: the board in Reading — navigate, filter, follow
+// links, K cards; no moves, edits, deletes or toggles.
+func (m Model) updateBoardReading(p *notePane, b *kanban.Board, key string) (tea.Model, tea.Cmd) {
+	if m.notePrefix == "g" && (key == "f" || key == "x") {
+		m.notePrefix = ""
+		ls := p.cardLinks(b)
+		if len(ls) == 0 {
+			m.statusMsg = "nenhum link neste cartão"
+			return m, nil
+		}
+		if key == "x" {
+			for _, l := range ls {
+				if l.external {
+					openURLFn(l.target)
+					return m, nil
+				}
+			}
+			return m, nil
+		}
+		return m.followLink(p, ls[0], "replace")
+	}
+	vis := visibleCards(b, p.bcol, p.bfilter)
+	ncol := len(b.Columns)
+	switch key {
+	case "h", "left", "l", "right":
+		d := 1
+		if key == "h" || key == "left" {
+			d = -1
+		}
+		if c := p.bcol + d; c >= 0 && c < ncol {
+			p.bcol = c
+			p.bcard = clamp(p.bcard, 0, max(0, len(visibleCards(b, p.bcol, p.bfilter))-1))
+		}
+		return m, nil
+	case "j", "down":
+		if p.bcard < len(vis)-1 {
+			p.bcard++
+		}
+		return m, nil
+	case "k", "up":
+		if p.bcard > 0 {
+			p.bcard--
+		}
+		return m, nil
+	case "tab", "shift+tab":
+		// next / previous card across columns
+		d := 1
+		if key == "shift+tab" {
+			d = -1
+		}
+		c, i := p.bcol, p.bcard+d
+		for n := 0; n <= ncol; n++ {
+			cv := visibleCards(b, c, p.bfilter)
+			if i >= 0 && i < len(cv) {
+				p.bcol, p.bcard = c, i
+				return m, nil
+			}
+			c = (c + d + ncol) % max(1, ncol)
+			if d > 0 {
+				i = 0
+			} else {
+				i = len(visibleCards(b, c, p.bfilter)) - 1
+			}
+		}
+		return m, nil
+	case "G":
+		p.bcard = max(0, len(vis)-1)
+		return m, nil
+	case "enter":
+		if ls := p.cardLinks(b); len(ls) > 0 {
+			return m.followLink(p, ls[0], "replace")
+		}
+		m.statusMsg = "nenhum link neste cartão — i edita o quadro"
+		return m, nil
+	case "K":
+		if ls := p.cardLinks(b); len(ls) > 0 {
+			return m.openHover(p, ls[0])
+		}
+		m.statusMsg = "nenhum link neste cartão"
+		return m, nil
+	case "i", "e":
+		p.bedit = true
+		m.statusMsg = "vista: " + p.modeLabel() + " (Esc volta à leitura)"
+		return m, nil
+	case "/":
+		p.binput, p.bvalue = "filter", p.bfilter
+		return m, nil
+	case "esc":
+		if p.bfilter != "" {
+			p.bfilter = ""
+			return m, nil
+		}
+	case "x", " ", "H", "L", "J", "a", "o", "A", "d", "u", "D":
+		m.statusMsg = readOnlyHint
 		return m, nil
 	}
 	if mm, cmd, ok := m.commonNoteKey(key); ok {
@@ -286,6 +425,10 @@ func (m Model) updateCanvas(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter", "l":
 		return m.openCanvasRow(p, "replace")
+	case "i", "e":
+		// Edit is the app / web canvas; the TUI has Reading and Source
+		m.statusMsg = "editar o canvas: no app ou na web · zv / :source mostra o JSON"
+		return m, nil
 	}
 	if mm, cmd, ok := m.commonNoteKey(key); ok {
 		return mm, cmd

@@ -97,7 +97,11 @@ var keymapHelp = []keymapSection{
 		{"ctrl/alt-click", "open link in a split"},
 		{"⌃l (source+preview)", "read the preview with a cursor (Esc back)"},
 	}},
-	{"Board and canvas", [][2]string{
+	{"Board and canvas (Reading | Edit | Source)", [][2]string{
+		{"Reading (default)", "read-only: h l j k Tab, / filter, ⏎ gf K on card links"},
+		{"i e  ·  Esc q", "board Edit · back to Reading"},
+		{"zv  :reader :board :source", "Reading → Edit → Source"},
+		{"canvas i", "Edit is in the app / web (zv: JSON source)"},
 		{"h l  j k", "column / card"},
 		{"H L  J K", "move card"},
 		{"a o  A", "new card · new column"},
