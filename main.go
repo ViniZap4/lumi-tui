@@ -140,7 +140,7 @@ func main() {
 		// with the floating explorer open (ui/lastnote.go).
 		model := ui.NewModelWithInitialNote(rootDir, initialNote).WithBooks(mgr, activeID)
 
-		p := tea.NewProgram(model, tea.WithAltScreen())
+		p := tea.NewProgram(model, ui.ProgramOptions(nil, nil)...)
 		final, err := p.Run()
 		// the built-in editor may have changed the cursor shape (DECSCUSR)
 		fmt.Fprint(os.Stdout, vim.ResetCursorShape)

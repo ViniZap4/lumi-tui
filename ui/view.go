@@ -60,7 +60,7 @@ func (m Model) View() string {
 		content += "\n" + m.renderStatusLine()
 	}
 	content = m.overlayToast(content)
-	return m.fillBg(content)
+	return compactSGR(m.fillBg(content))
 }
 
 // fillBg paints the entire terminal viewport with the theme background color.
