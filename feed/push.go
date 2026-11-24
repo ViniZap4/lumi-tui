@@ -126,8 +126,9 @@ func (s *Syncer) Pending() []string {
 		if err != nil {
 			continue
 		}
-		n, _ := filesystem.ReadNote(filepath.Join(s.Root, rel))
-		if n == nil || n.ID != id {
+		abs := filepath.Join(s.Root, rel)
+		n, _ := filesystem.ReadNote(abs)
+		if n == nil || noteIDFor(s.Root, abs, n) != id {
 			continue
 		}
 		if BodyHash(n.Content) != e.Hash {
@@ -194,6 +195,7 @@ func (s *Syncer) Push(ctx context.Context, absPath string) (PushResult, error) {
 		return PushResult{}, err
 	}
 	res := PushResult{Path: s.rel(absPath)}
+	local.ID = noteIDFor(s.Root, absPath, local)
 	id := local.ID
 	if id == "" {
 		return res, fmt.Errorf("%s: note has no id", res.Path)
@@ -393,12 +395,16 @@ func (s *Syncer) writeConflictCopy(n *domain.Note) (string, error) {
 func (s *Syncer) writeConflictCopyAs(n *domain.Note, suffix string) (string, error) {
 	ts := s.now().Format("20060102-150405")
 	dir, stem := filepath.Dir(n.Path), strings.TrimSuffix(filepath.Base(n.Path), filepath.Ext(n.Path))
-	dest := filepath.Join(dir, stem+ConflictSuffix+ts+".md")
+	ext := ".md"
+	if filesystem.IsCanvas(n.Path) {
+		ext = ".canvas" // a canvas copy stays raw JSON, never frontmatter
+	}
+	dest := filepath.Join(dir, stem+ConflictSuffix+ts+ext)
 	for i := 2; ; i++ {
 		if _, err := os.Stat(dest); errors.Is(err, os.ErrNotExist) {
 			break
 		}
-		dest = filepath.Join(dir, fmt.Sprintf("%s%s%s-%d.md", stem, ConflictSuffix, ts, i))
+		dest = filepath.Join(dir, fmt.Sprintf("%s%s%s-%d%s", stem, ConflictSuffix, ts, i, ext))
 	}
 	cp := *n
 	cp.Path = dest

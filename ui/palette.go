@@ -68,7 +68,7 @@ func collectNotes(root string) []paletteEntry {
 			}
 			return nil
 		}
-		if strings.HasPrefix(d.Name(), ".") || !strings.HasSuffix(d.Name(), ".md") {
+		if strings.HasPrefix(d.Name(), ".") || !filesystem.IsNoteFile(d.Name()) {
 			return nil
 		}
 		n, _ := filesystem.ReadNote(p)

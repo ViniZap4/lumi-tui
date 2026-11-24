@@ -49,6 +49,15 @@ func ReadNote(path string) (*domain.Note, error) {
 
 	note := &domain.Note{Path: path}
 
+	if IsCanvas(path) {
+		// JSON Canvas: no frontmatter ever; id = file name, title = the
+		// name without ".canvas" (server contract).
+		fillAutoMetadata(note, path, data)
+		note.ID = filepath.Base(path)
+		note.Title = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+		return note, nil
+	}
+
 	yamlBytes, body, hasFrontmatter := splitFrontmatter(data)
 	if !hasFrontmatter {
 		fillAutoMetadata(note, path, data)
@@ -460,4 +469,13 @@ func WriteBody(path, body string, bump bool, now time.Time) error {
 		perm = info.Mode().Perm()
 	}
 	return atomicWriteFile(path, []byte(out), perm)
+}
+
+// IsCanvas reports a JSON Canvas file (`.canvas`).
+func IsCanvas(path string) bool { return strings.HasSuffix(strings.ToLower(path), ".canvas") }
+
+// IsNoteFile reports the files a book holds: markdown notes and canvases.
+func IsNoteFile(name string) bool {
+	l := strings.ToLower(name)
+	return strings.HasSuffix(l, ".md") || strings.HasSuffix(l, ".canvas")
 }

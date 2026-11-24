@@ -69,6 +69,8 @@ type RemoteNote struct {
 	// CRDTEpoch is the note's CRDT lineage (protocol §12.2); empty on
 	// servers before migration 0008.
 	CRDTEpoch string `json:"crdt_epoch,omitempty"`
+	// Kind is "markdown" or "canvas" (servers before canvases omit it).
+	Kind string `json:"kind,omitempty"`
 }
 
 // noteListResponse is the envelope returned by `GET /api/vaults/:vault/notes`.

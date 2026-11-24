@@ -69,12 +69,13 @@ func (m *Mirror) buildIndex() {
 			}
 			return nil
 		}
-		if !strings.HasSuffix(strings.ToLower(d.Name()), ".md") {
+		if !filesystem.IsNoteFile(d.Name()) {
 			return nil
 		}
 		if n, _ := filesystem.ReadNote(p); n != nil && n.ID != "" {
-			if _, dup := m.index[n.ID]; !dup {
-				m.index[n.ID] = p
+			id := noteIDFor(m.Root, p, n)
+			if _, dup := m.index[id]; !dup {
+				m.index[id] = p
 			}
 		}
 		return nil
@@ -89,10 +90,20 @@ func safeRel(p string) (string, error) {
 	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("unsafe path %q", p)
 	}
-	if !strings.HasSuffix(strings.ToLower(clean), ".md") {
+	if !filesystem.IsNoteFile(clean) {
 		clean += ".md"
 	}
 	return clean, nil
+}
+
+// noteIDFor is a note's server id: the frontmatter id for markdown, the
+// book-relative path for a canvas (canvas id = `<slug>.canvas`, the same
+// as its path; canvases never carry frontmatter).
+func noteIDFor(root, absPath string, n *domain.Note) string {
+	if filesystem.IsCanvas(absPath) {
+		return relOrSelf(root, absPath)
+	}
+	return n.ID
 }
 
 // ApplyNote brings one changed note into the folder.
@@ -170,7 +181,9 @@ func (m *Mirror) ApplyNote(ctx context.Context, rn account.RemoteNote, st *Mirro
 			}
 		}
 		local.Path = dest
-		local.Title = firstNonEmpty(rn.Title, local.Title)
+		if !filesystem.IsCanvas(dest) {
+			local.Title = firstNonEmpty(rn.Title, local.Title)
+		}
 		local.Content = text
 		if t, err := time.Parse(time.RFC3339, rn.UpdatedAt); err == nil {
 			local.UpdatedAt = t
@@ -187,7 +200,7 @@ func (m *Mirror) ApplyNote(ctx context.Context, rn account.RemoteNote, st *Mirro
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return err
 		}
-		n := &domain.Note{ID: rn.ID, Title: rn.Title, Path: dest, Content: text, HadFrontmatter: true}
+		n := &domain.Note{ID: rn.ID, Title: rn.Title, Path: dest, Content: text, HadFrontmatter: !filesystem.IsCanvas(dest)}
 		if t, err := time.Parse(time.RFC3339, rn.CreatedAt); err == nil {
 			n.CreatedAt = t
 		}

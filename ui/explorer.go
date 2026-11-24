@@ -42,7 +42,7 @@ func listDir(dir string, showHidden bool) []Item {
 			folders = append(folders, Item{Name: name, IsFolder: true, Path: full})
 			continue
 		}
-		if !strings.HasSuffix(name, ".md") {
+		if !filesystem.IsNoteFile(name) {
 			continue
 		}
 		n, _ := filesystem.ReadNote(full)

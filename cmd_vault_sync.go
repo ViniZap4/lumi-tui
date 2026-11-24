@@ -417,10 +417,16 @@ func scanLocalNotes(root string) (map[string]*domain.Note, int, error) {
 			}
 			return nil
 		}
-		if !strings.HasSuffix(strings.ToLower(d.Name()), ".md") {
+		if !filesystem.IsNoteFile(d.Name()) {
 			return nil
 		}
 		note, readErr := filesystem.ReadNote(p)
+		if note != nil && filesystem.IsCanvas(p) {
+			// canvas id = its book-relative path (`<slug>.canvas`)
+			if rel, err := filepath.Rel(root, p); err == nil {
+				note.ID = filepath.ToSlash(rel)
+			}
+		}
 		if readErr != nil && note == nil {
 			return fmt.Errorf("read %s: %w", p, readErr)
 		}
@@ -446,7 +452,7 @@ func buildNoteFromRemote(meta account.RemoteNote, snap *account.NoteSnapshot, de
 		Title:          meta.Title,
 		Path:           dest,
 		Content:        snap.Text,
-		HadFrontmatter: true,
+		HadFrontmatter: !filesystem.IsCanvas(dest), // canvases are raw JSON
 	}
 	if t, err := time.Parse(time.RFC3339, meta.CreatedAt); err == nil {
 		note.CreatedAt = t
