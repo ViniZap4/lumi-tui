@@ -39,6 +39,9 @@ type User struct {
 type errorEnvelope struct {
 	Error  string `json:"error"`
 	Detail string `json:"detail,omitempty"`
+	// RetryAfter (seconds) rides in the body on 423 account_locked, next
+	// to the Retry-After header.
+	RetryAfter int `json:"retry_after,omitempty"`
 }
 
 // APIError carries a server-side failure code. Caller-friendly errors
@@ -203,8 +206,11 @@ func (c *Client) do(ctx context.Context, method, path string, body any, requireT
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var env errorEnvelope
 		_ = json.Unmarshal(respBytes, &env)
-		return &APIError{Status: resp.StatusCode, Code: env.Error, Detail: env.Detail, Raw: respBytes,
-			RetryAfter: ParseRetryAfter(resp.Header.Get("Retry-After"), time.Now())}
+		wait := ParseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
+		if wait == 0 && env.RetryAfter > 0 {
+			wait = time.Duration(env.RetryAfter) * time.Second
+		}
+		return &APIError{Status: resp.StatusCode, Code: env.Error, Detail: env.Detail, Raw: respBytes, RetryAfter: wait}
 	}
 
 	if out == nil || len(respBytes) == 0 {

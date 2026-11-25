@@ -191,6 +191,11 @@ func describeLoginError(err error) string {
 	if errors.Is(err, account.ErrUnauthorized) {
 		return "invalid username or password"
 	}
+	if wait, ok := account.Locked(err); ok {
+		// pt-BR like every client (the server only says this when the
+		// password was right).
+		return account.LockedMessage(wait)
+	}
 	var apiErr *account.APIError
 	if errors.As(err, &apiErr) {
 		switch apiErr.Code {

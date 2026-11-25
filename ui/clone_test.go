@@ -480,7 +480,10 @@ func TestAccountsGoldenStable(t *testing.T) {
 func TestLoginErrors(t *testing.T) {
 	cases := map[string]error{
 		"muitas tentativas — tente de novo em 2 min": &account.APIError{Status: 429, Code: "rate_limited", RetryAfter: 2 * time.Minute},
-		"conta bloqueada — tente de novo em 15 min":  &account.APIError{Status: 403, Code: "account_locked", RetryAfter: 15 * time.Minute},
+		"conta bloqueada — 15 min":                   &account.APIError{Status: 423, Code: "account_locked", RetryAfter: 15 * time.Minute},
+		"conta bloqueada — 2 min":                    &account.APIError{Status: 423, Code: "account_locked", RetryAfter: 61 * time.Second},
+		"conta bloqueada — menos de 1 min":           &account.APIError{Status: 423, Code: "account_locked", RetryAfter: 30 * time.Second},
+		"conta bloqueada":                            &account.APIError{Status: 423, Code: "account_locked"},
 		"usuário ou senha inválidos":                 &account.APIError{Status: 401, Code: "invalid_credentials"},
 	}
 	for want, err := range cases {

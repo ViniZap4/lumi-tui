@@ -847,19 +847,16 @@ func loginError(err error) string {
 	case errors.Is(err, account.ErrInvalidLink):
 		return "o link expirou — tente de novo"
 	}
+	if wait, ok := account.Locked(err); ok {
+		return account.LockedMessage(wait)
+	}
 	var apiErr *account.APIError
 	if errors.As(err, &apiErr) {
 		switch apiErr.Code {
 		case "invalid_credentials":
 			return "usuário ou senha inválidos"
-		case "account_locked", "account_disabled":
-			msg := "conta bloqueada"
-			if apiErr.Code == "account_disabled" {
-				msg = "conta desativada — fale com o administrador"
-			} else if apiErr.RetryAfter > 0 {
-				msg += " — tente de novo em " + humanWait(apiErr.RetryAfter)
-			}
-			return msg
+		case "account_disabled":
+			return "conta desativada — fale com o administrador"
 		case "rate_limited":
 			if apiErr.RetryAfter > 0 {
 				return "muitas tentativas — tente de novo em " + humanWait(apiErr.RetryAfter)
