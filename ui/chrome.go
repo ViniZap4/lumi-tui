@@ -336,7 +336,34 @@ func (m Model) renderModePill() string {
 		w := max(3, lerp(from, runewidth.StringWidth(label), a.value(0, 1.15)))
 		label = runewidth.FillRight(runewidth.Truncate(label, w, ""), w)
 	}
-	return lipgloss.NewStyle().Foreground(t.Background).Background(t.Primary).Bold(true).Render(label)
+	return lipgloss.NewStyle().Foreground(t.Background).Background(m.modeTint()).Bold(true).Render(label)
+}
+
+// modeColor is a vim mode's colour (DESIGN-LANGUAGE §6.7): normal =
+// primary, insert = accent, visual = secondary, replace = error. The
+// pill, the editor's left edge and the current line number take it.
+func modeColor(md vim.Mode) lipgloss.Color {
+	t := theme.Current
+	switch {
+	case md == vim.ModeInsert:
+		return t.Accent
+	case md == vim.ModeReplace:
+		return t.Error
+	case md.IsVisual():
+		return t.Secondary
+	}
+	return t.Primary
+}
+
+// modeTint is the focused editor's mode colour; primary elsewhere.
+func (m Model) modeTint() lipgloss.Color {
+	switch m.legendContext() {
+	case CtxEditor, CtxInsert, CtxVisual, CtxCmdline:
+		if e := m.focusEngine(); e != nil {
+			return modeColor(e.Mode())
+		}
+	}
+	return theme.Current.Primary
 }
 
 // displayRel shows a path relative to the book root as "~/…".

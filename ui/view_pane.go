@@ -119,12 +119,24 @@ func (m Model) renderNode(n *layoutNode, r rect) []string {
 	rects := m.childRects(n, r)
 	if n.dir == 'v' {
 		out := make([]string, r.h)
+		// Pane focus (DESIGN-LANGUAGE §8 row 7): the divider beside the
+		// focused pane is its border, heavy and accent; every other
+		// divider rests thin in the separator ink. Not colour alone: the
+		// glyph changes too.
 		sep := lipgloss.NewStyle().Foreground(theme.Current.Separator).Render("│")
+		lit := lipgloss.NewStyle().Foreground(theme.Current.Accent).Render("┃")
+		fr, hasFocus := m.layoutRects()[m.ws.focus]
 		for i, c := range n.kids {
 			block := m.renderNode(c, rects[i])
+			sx := rects[i].x - 1
+			beside := hasFocus && (fr.x+fr.w == sx || fr.x == sx+1)
 			for row := 0; row < r.h; row++ {
 				if i > 0 {
-					out[row] += sep
+					if y := r.y + row; beside && y >= fr.y && y < fr.y+fr.h {
+						out[row] += lit
+					} else {
+						out[row] += sep
+					}
 				}
 				l := ""
 				if row < len(block) {
@@ -184,6 +196,9 @@ func (m Model) renderPane(p *notePane, w, h int, origin bool) []string {
 	ts := lipgloss.NewStyle().Bold(true).Foreground(t.TextDim)
 	if focused {
 		ts = ts.Foreground(t.Primary)
+		if a, ok := m.mo.get(animTitle); ok && a.active && a.pos > 0.35 {
+			ts = ts.Foreground(t.Accent) // just opened from the explorer
+		}
 	}
 	k := kindOf(p.buf.path)
 	left := kindStyle(k).Render(" "+k.glyph()) + ts.Render(" "+truncate(title, max(4, w-lipgloss.Width(right)-8-notesButtonWidth))) + lipgloss.NewStyle().Foreground(t.Warning).Render(marks)
@@ -208,7 +223,7 @@ func (m Model) renderPane(p *notePane, w, h int, origin bool) []string {
 	header := left + strings.Repeat(" ", gap) + right
 	if focused && len(m.ws.leaves()) > 1 {
 		header = lipgloss.NewStyle().Underline(true).Render(stripAnsi(header))
-		header = lipgloss.NewStyle().Foreground(t.Primary).Render(header)
+		header = lipgloss.NewStyle().Foreground(t.Accent).Render(header)
 	}
 	header = btn + header
 	bodyH := max(1, h-1)
@@ -336,6 +351,15 @@ func (m Model) renderEditor(p *notePane, w, h int, focused bool) []string {
 		e.Top = top
 	} else {
 		p.top = top
+	}
+	// the mode mark (DESIGN-LANGUAGE §8 row 16, "gutter colour = mode
+	// colour"): in the focused editor the cursor line's left margin is a
+	// bar in the mode colour, and so is its line number. Other rows and
+	// unfocused editors keep a plain margin.
+	edge, edgeColor := " ", t.Accent
+	if focused {
+		edgeColor = modeColor(e.Mode())
+		edge = lipgloss.NewStyle().Foreground(edgeColor).Render("▎")
 	}
 	selS, selE, selMode, toEOL, selOK := vim.Pos{}, vim.Pos{}, vim.ModeNormal, false, false
 	if focused {
@@ -483,11 +507,15 @@ func (m Model) renderEditor(p *notePane, w, h int, focused bool) []string {
 				}
 				gs := lipgloss.NewStyle().Foreground(t.TextDim)
 				if l == cur.Line {
-					gs = gs.Foreground(t.Accent)
+					gs = gs.Foreground(edgeColor)
 				}
 				g = gs.Render(fmt.Sprintf("%*s ", gutter-1, num))
 			}
-			out = append(out, g+" "+r)
+			mark := " "
+			if l == cur.Line {
+				mark = edge
+			}
+			out = append(out, mark+g+r)
 			if len(out) >= h {
 				break
 			}

@@ -1,7 +1,7 @@
  ≡ notes  ▤ One                                                                        fonte+prévia
  # one                                            │ one
                                                   │
- See [[two]] and [the site](https://example.com). │ See [[two]] and the site https://example.com.
+▎See [[two]] and [the site](https://example.com). │ See [[two]] and the site https://example.com.
  ~                                                │
  ~                                                │
  ~                                                │

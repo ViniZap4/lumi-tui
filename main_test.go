@@ -111,3 +111,15 @@ func TestParseArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestTakeReduceMotion(t *testing.T) {
+	t.Setenv("REDUCE_MOTION", "")
+	got := takeReduceMotion([]string{"--reduce-motion", "notes"})
+	if len(got) != 1 || got[0] != "notes" || os.Getenv("REDUCE_MOTION") != "1" {
+		t.Fatalf("args %v env %q", got, os.Getenv("REDUCE_MOTION"))
+	}
+	t.Setenv("REDUCE_MOTION", "")
+	if got := takeReduceMotion([]string{"notes"}); len(got) != 1 || os.Getenv("REDUCE_MOTION") != "" {
+		t.Fatal("no flag, no change")
+	}
+}

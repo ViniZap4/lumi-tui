@@ -1,24 +1,24 @@
- ≡ notes  ▤ One                   fonte+prévia ⤢ │ ▤ One                             fonte+prévia ⤢
- # one                  │ one                    │ # one                   │ one
-                        │                        │                         │
- See [[two]] and [the si│ See [[two]] and the    │ See [[two]] and [the sit│ See [[two]] and the
- te](https://example.com│ site                   │ e](https://example.com).│ site
- ).                     │ https://example.com.   │ ~                       │ https://example.com.
- ~                      │                        │ ~                       │
- ~                      │                        │ ~                       │
- ~                      │                        │ ~                       │
- ~                      │                        │ ~                       │
- ~                      │                        │ ~                       │
- ~                      │                        │ ~                       │
- ~                      │                        │ ~                       │
- ~                      │                        │ ~                       │
- ~                      │                        │ ~                       │
- ~                      │                        │ ~                       │
- ~                      │                        │ ~                       │
- ~                      │                        │ ~                       │
- ~                      │                        │ ~                       │
- ~                      │                        │ ~                       │
- ~                      │                        │ ~                       │
- ~                      │                        │ ~                       │
+ ≡ notes  ▤ One                   fonte+prévia ⤢ ┃ ▤ One                             fonte+prévia ⤢
+ # one                  │ one                    ┃ # one                   │ one
+                        │                        ┃                         │
+ See [[two]] and [the si│ See [[two]] and the    ┃▎See [[two]] and [the sit│ See [[two]] and the
+ te](https://example.com│ site                   ┃▎e](https://example.com).│ site
+ ).                     │ https://example.com.   ┃ ~                       │ https://example.com.
+ ~                      │                        ┃ ~                       │
+ ~                      │                        ┃ ~                       │
+ ~                      │                        ┃ ~                       │
+ ~                      │                        ┃ ~                       │
+ ~                      │                        ┃ ~                       │
+ ~                      │                        ┃ ~                       │
+ ~                      │                        ┃ ~                       │
+ ~                      │                        ┃ ~                       │
+ ~                      │                        ┃ ~                       │
+ ~                      │                        ┃ ~                       │
+ ~                      │                        ┃ ~                       │
+ ~                      │                        ┃ ~                       │
+ ~                      │                        ┃ ~                       │
+ ~                      │                        ┃ ~                       │
+ ~                      │                        ┃ ~                       │
+ ~                      │                        ┃ ~                       │
  i a o insert   v V ⌃v visual   :w save   :q reader   u ⌃r undo/redo   gf ⏎ follow link   …
  NORMAL  ▤ ~/one.md · Ln 3 Col 5 · 2 painéis                                                  local

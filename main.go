@@ -36,6 +36,7 @@ Usage:
   lumi vault transfer <url>/<slug> <username>   hand vault ownership to a member (v3)
   lumi vault copy <url>/<slug> <recipient>      share an independent copy (v3)
   lumi open [<book>[/<note>]] [--web]   open in the Lumi app (macOS) or the web client
+  lumi --reduce-motion ...   no animation frames (also REDUCE_MOTION=1 or the setting)
   lumi --help, -h            show this help
   lumi --version, -v         print version
 
@@ -65,7 +66,7 @@ func main() {
 		}
 	}
 
-	rootDir, initialNote, splash, exitCode, ok := parseArgs(os.Args[1:])
+	rootDir, initialNote, splash, exitCode, ok := parseArgs(takeReduceMotion(os.Args[1:]))
 	if !ok {
 		os.Exit(exitCode)
 	}
@@ -235,4 +236,19 @@ func validateDir(dir string) (string, string, int, bool) {
 		return "", "", 1, false
 	}
 	return dir, "", 0, true
+}
+
+// takeReduceMotion removes --reduce-motion from args and turns motion
+// off for this run (DESIGN-LANGUAGE §8 row 30): the UI reads
+// REDUCE_MOTION, which always wins over the setting.
+func takeReduceMotion(args []string) []string {
+	out := args[:0:0]
+	for _, a := range args {
+		if a == "--reduce-motion" {
+			os.Setenv("REDUCE_MOTION", "1")
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
 }

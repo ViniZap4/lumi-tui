@@ -83,6 +83,10 @@ func (m *Model) closeOverlay() {
 	m.mo.to(animOverlay, math.NaN(), 0)
 }
 
+// flashTitle: the note just opened from the explorer flashes its title
+// accent once (DESIGN-LANGUAGE §6.10 row 3, TUI column).
+func (m *Model) flashTitle() { m.mo.to(animTitle, 1, 0) }
+
 // startReveal staggers the explorer rows in again.
 func (m *Model) startReveal() {
 	if m.mo == nil {
@@ -152,6 +156,7 @@ func (m Model) updateFloatExplorer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				m.closeOverlay()
 				cmd := m.openNoteIn(it.Note, how)
+				m.flashTitle()
 				return m, tea.Batch(cmd, m.shapeCmd())
 			}
 			if key == "ctrl+v" || key == "ctrl+s" {
@@ -189,6 +194,7 @@ func (m Model) updateFloatExplorer(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case nm.focusedPane() != before && nm.focusedPane() != nil:
 		// a note was opened from inside (parent column, palette jump)
 		nm.closeOverlay()
+		nm.flashTitle()
 	}
 	return nm, cmd
 }

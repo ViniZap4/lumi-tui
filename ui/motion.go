@@ -25,6 +25,10 @@ import (
 //	pulse     the sync dot pulses on a remote change
 //	hover     the K card grows out of the link
 //	breathe   the sync dot breathes (braille) while a book is syncing
+//	title     an opened note's title flashes accent once
+//
+// Each value rides one of the five named springs of DESIGN-LANGUAGE
+// §6.1 (animSpring), integrated by harmonica at 60 Hz.
 //
 // Reduce motion (Settings, or NO_MOTION / REDUCE_MOTION in the
 // environment) snaps every value to its target: no frames are scheduled.
@@ -32,15 +36,51 @@ import (
 const (
 	frameRate     = 60
 	frameInterval = time.Second / frameRate
-	// breatheInterval paces the sync spinner when nothing else moves
-	// (10 fps is plenty for a breathing dot and keeps CPU low).
-	breatheInterval = 100 * time.Millisecond
-	// spring tuning: settles visually in ~200 ms with a slight
-	// overshoot ("settle with a slight spring").
-	springFreq    = 18.0
-	springDamping = 0.72
-	settleEps     = 0.004
+	// breatheInterval paces the sync spinner when nothing else moves:
+	// DESIGN-LANGUAGE §8 row 21, braille frames at 80 ms (12.5 fps keeps
+	// the CPU low; it only runs while a book syncs).
+	breatheInterval = 80 * time.Millisecond
+	// breatheEvery: while springs run at 60 fps the spinner advances
+	// every 5th frame (≈ 80 ms).
+	breatheEvery = 5
+	settleEps    = 0.004
 )
+
+// springName is one of the five named springs of DESIGN-LANGUAGE §6.1.
+// The TUI uses harmonica with the doc's ω0 and ζ, so a spring here
+// rises and overshoots like the same spring on the web and the Mac.
+type springName int
+
+const (
+	springSnappy springName = iota // press, small UI, pills
+	springGlide                    // things that travel: panes, zoom
+	springGentle                   // content rising in, rows, views
+	springBouncy                   // things that pop: overlays, toasts, cards
+	springSoft                     // veils, large surfaces
+	springCount
+)
+
+// springParams are §6.1's ω0 (rad/s) and ζ per named spring.
+var springParams = [springCount]struct{ omega, zeta float64 }{
+	springSnappy: {26.5, 0.72},
+	springGlide:  {19.5, 0.67},
+	springGentle: {16.1, 0.87},
+	springBouncy: {20.0, 0.50},
+	springSoft:   {12.2, 0.90},
+}
+
+func (n springName) String() string {
+	return [...]string{"snappy", "glide", "gentle", "bouncy", "soft"}[n]
+}
+
+// newSprings builds the five springs for a 60 Hz frame step.
+func newSprings() [springCount]harmonica.Spring {
+	var out [springCount]harmonica.Spring
+	for i, p := range springParams {
+		out[i] = harmonica.NewSpring(harmonica.FPS(frameRate), p.omega, p.zeta)
+	}
+	return out
+}
 
 // frameMsg advances the springs by one frame.
 type frameMsg struct{}
@@ -73,13 +113,28 @@ const (
 	animPulse                   // remote change 1 … 0
 	animHover                   // K card 0 … 1 grown
 	animZoom                    // zoomed pane 0 in its rect … 1 full area
+	animTitle                   // opened note's title flash 1 … 0
 	animCount
 )
+
+// animSpring is the named spring each value rides (§6.10's column
+// "springs / timing").
+var animSpring = [animCount]springName{
+	animOverlay: springBouncy, // the explorer grows from its trigger
+	animReveal:  springGentle, // rows ripple in
+	animSplit:   springGlide,  // a pane unfolds from the divider
+	animToast:   springBouncy, // toasts spring in
+	animPill:    springBouncy, // the mode pill gets a kick
+	animPulse:   springBouncy, // the sync dot takes the hit
+	animHover:   springBouncy, // the K card grows out of the link
+	animZoom:    springGlide,  // the pane expands from its box
+	animTitle:   springSnappy, // the title flashes accent, briefly
+}
 
 // motion is shared by Model copies (pointer), like the workspace.
 type motion struct {
 	reduced bool
-	spring  harmonica.Spring
+	springs [springCount]harmonica.Spring
 
 	a [animCount]anim
 
@@ -123,7 +178,7 @@ func motionReducedByEnv() bool {
 func newMotion(reduced bool) *motion {
 	return &motion{
 		reduced: reduced || motionReducedByEnv(),
-		spring:  harmonica.NewSpring(harmonica.FPS(frameRate), springFreq, springDamping),
+		springs: newSprings(),
 	}
 }
 
@@ -229,8 +284,8 @@ func (mo *motion) frame() tea.Cmd {
 		return nil
 	}
 	sp := mo.springing()
-	for _, a := range mo.all() {
-		a.step(mo.spring)
+	for k := range mo.a {
+		mo.a[k].step(mo.springs[animSpring[k]])
 	}
 	if !mo.a[animSplit].active {
 		mo.splitPane = nil
@@ -240,9 +295,9 @@ func (mo *motion) frame() tea.Cmd {
 	}
 	if mo.syncing || mo.spinning {
 		if sp {
-			mo.breathe++ // ~60 fps: advance the spinner every 6th frame
+			mo.breathe++ // 60 fps: the spinner advances every 5th frame
 		} else {
-			mo.breathe += 6
+			mo.breathe += breatheEvery
 		}
 	}
 	return mo.kick()
@@ -261,5 +316,5 @@ func (mo *motion) breatheGlyph() string {
 	if mo == nil || mo.reduced {
 		return ""
 	}
-	return breatheFrames[(mo.breathe/6)%len(breatheFrames)]
+	return breatheFrames[(mo.breathe/breatheEvery)%len(breatheFrames)]
 }
