@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -44,33 +45,113 @@ var (
 
 var dumpHook func(string, []byte)
 
-type ptyCapture struct {
-	mu   sync.Mutex
-	buf  bytes.Buffer
-	last time.Time
+// ptyProbe wraps the model to see, without timing, when the program has
+// handled an input and settled: View records whether the screen changed
+// (gen) and whether a spring still moves; the output tap records every
+// frame as written to the terminal and which gen it carries. A step ends
+// when its input was handled, nothing animates and the last changed view
+// has been flushed. No sleeps, no idle windows: under -race the program
+// is just slower, never wrong.
+type ptyProbe struct {
+	mu        sync.Mutex
+	notify    chan struct{}
+	input     bool // a key / mouse message since the last View
+	inputs    int  // Views that followed an input
+	lastView  string
+	gen       int // bumps on every changed View
+	flushed   int // gen at the last frame written
+	animating bool
+	buf       bytes.Buffer
 }
 
-func (c *ptyCapture) take() []byte {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	out := append([]byte(nil), c.buf.Bytes()...)
-	c.buf.Reset()
-	c.last = time.Now()
+func newPTYProbe() *ptyProbe { return &ptyProbe{notify: make(chan struct{}, 1)} }
+
+func (p *ptyProbe) poke() {
+	select {
+	case p.notify <- struct{}{}:
+	default:
+	}
+}
+
+// tap sees each frame as the renderer writes it.
+func (p *ptyProbe) tap(b []byte) {
+	p.mu.Lock()
+	p.buf.Write(b)
+	p.flushed = p.gen
+	p.mu.Unlock()
+	p.poke()
+}
+
+// take returns (and clears) the bytes written since the last take.
+func (p *ptyProbe) take() []byte {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := append([]byte(nil), p.buf.Bytes()...)
+	p.buf.Reset()
 	return out
 }
 
-// quiet waits until nothing was written for d (or max elapsed).
-func (c *ptyCapture) quiet(d, maxWait time.Duration) {
-	deadline := time.Now().Add(maxWait)
-	for time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-		c.mu.Lock()
-		idle := time.Since(c.last) >= d
-		c.mu.Unlock()
-		if idle {
+// waitFor blocks until cond (checked under the lock) holds. The deadline
+// only turns a hang into a failure; it never decides a pass.
+func (p *ptyProbe) waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.After(30 * time.Second)
+	for {
+		p.mu.Lock()
+		ok := cond()
+		p.mu.Unlock()
+		if ok {
 			return
 		}
+		select {
+		case <-p.notify:
+		case <-deadline:
+			p.mu.Lock()
+			state := fmt.Sprintf("gen %d flushed %d animating %v inputs %d", p.gen, p.flushed, p.animating, p.inputs)
+			p.mu.Unlock()
+			t.Fatalf("timed out waiting for %s (%s)", what, state)
+		}
 	}
+}
+
+// settled: nothing moves and the latest view reached the terminal.
+func (p *ptyProbe) settled() bool { return !p.animating && p.flushed >= p.gen }
+
+type probeModel struct {
+	inner ui.Model
+	p     *ptyProbe
+}
+
+func (m probeModel) Init() tea.Cmd { return m.inner.Init() }
+
+func (m probeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	nm, cmd := m.inner.Update(msg)
+	m.inner = nm.(ui.Model)
+	switch msg.(type) {
+	case tea.KeyMsg, tea.MouseMsg:
+		m.p.mu.Lock()
+		m.p.input = true
+		m.p.mu.Unlock()
+	}
+	return m, cmd
+}
+
+func (m probeModel) View() string {
+	v := m.inner.View()
+	p := m.p
+	p.mu.Lock()
+	if v != p.lastView {
+		p.lastView = v
+		p.gen++
+	}
+	if p.input {
+		p.input = false
+		p.inputs++
+	}
+	p.animating = m.inner.Animating()
+	p.mu.Unlock()
+	p.poke()
+	return v
 }
 
 const ptyNote = `---
@@ -132,40 +213,33 @@ func runInPTY(t *testing.T, root, note string, cols, rows int, inputs []struct{ 
 	if err := pty.Setsize(master, &pty.Winsize{Rows: uint16(rows), Cols: uint16(cols)}); err != nil {
 		t.Fatal(err)
 	}
-	capt := &ptyCapture{last: time.Now()}
-	go func() {
-		b := make([]byte, 64*1024)
-		for {
-			n, err := master.Read(b)
-			if n > 0 {
-				capt.mu.Lock()
-				capt.buf.Write(b[:n])
-				capt.last = time.Now()
-				capt.mu.Unlock()
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
+	// drain the terminal side so writes never block; bytes are measured
+	// at the output tap, frame by frame
+	go func() { _, _ = io.Copy(io.Discard, master) }()
 
-	model := ui.NewModelWithInitialNote(root, note)
-	p := tea.NewProgram(model, ui.ProgramOptions(slave, slave)...)
+	probe := newPTYProbe()
+	model := probeModel{inner: ui.NewModelWithInitialNote(root, note), p: probe}
+	p := tea.NewProgram(model, ui.ProgramOptionsTap(slave, slave, probe.tap)...)
 	done := make(chan struct{})
 	go func() {
 		_, _ = p.Run()
 		close(done)
 	}()
-	capt.quiet(250*time.Millisecond, 5*time.Second)
-	capt.take()
+	probe.waitFor(t, "the note on screen", func() bool {
+		return strings.Contains(stripSGR(probe.lastView), "Rolagem sem piscar") && probe.settled()
+	})
+	probe.take()
 
 	var out []ptyStep
 	for _, in := range inputs {
+		probe.mu.Lock()
+		before := probe.inputs
+		probe.mu.Unlock()
 		if _, err := master.Write([]byte(in.seq)); err != nil {
 			t.Fatal(err)
 		}
-		capt.quiet(120*time.Millisecond, 3*time.Second)
-		b := capt.take()
+		probe.waitFor(t, in.name, func() bool { return probe.inputs > before && probe.settled() })
+		b := probe.take()
 		if dumpHook != nil {
 			dumpHook(fmt.Sprintf("%02d-%s", len(out), in.name), b)
 		}
@@ -247,3 +321,7 @@ func checkScroll(t *testing.T) {
 	}
 	t.Logf("total %d bytes over %d steps (avg %d)", total, len(steps), total/max(1, len(steps)))
 }
+
+var reSGR = regexp.MustCompile(`\x1b\[[0-9;:?]*[A-Za-z]`)
+
+func stripSGR(s string) string { return reSGR.ReplaceAllString(s, "") }

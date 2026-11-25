@@ -237,7 +237,10 @@ func sameBlank(a, b sgrState) bool {
 // never seen half done. Others ignore the unknown mode. Bubbletea's
 // renderer writes one frame per Write. It stays an *os.File so
 // Bubbletea still detects the terminal (size, raw mode).
-type syncWriter struct{ *os.File }
+type syncWriter struct {
+	*os.File
+	tap func([]byte) // tests: sees each frame as written
+}
 
 const (
 	syncBegin = "\x1b[?2026h"
@@ -251,6 +254,9 @@ func (w syncWriter) Write(p []byte) (int, error) {
 	buf = append(buf, syncEnd...)
 	if _, err := w.File.Write(buf); err != nil {
 		return 0, err
+	}
+	if w.tap != nil {
+		w.tap(buf)
 	}
 	return len(p), nil
 }
