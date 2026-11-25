@@ -60,3 +60,46 @@ func TestParseErrors(t *testing.T) {
 		t.Fatal("bad json accepted")
 	}
 }
+
+// Ported from web-client src/lib/canvas/canvas-recover.test.ts.
+func TestHealMissingCommas(t *testing.T) {
+	heals := map[string]string{
+		"{\"nodes\":[\n\t\t{\"id\":\"a\"}\n\t\n\t\t{\"id\":\"b\"}\n\t]}": "{\"nodes\":[\n\t\t{\"id\":\"a\"},\n\t\n\t\t{\"id\":\"b\"}\n\t]}",
+		`{"a":[{"x":1}{"y":2}{"z":3}]}`:                                  `{"a":[{"x":1},{"y":2},{"z":3}]}`,
+	}
+	for in, want := range heals {
+		if got, ok := HealMissingCommas(in); !ok || got != want {
+			t.Errorf("heal %q = %q, %v; want %q", in, got, ok, want)
+		}
+	}
+	// everything else is left alone: top-level documents, strings, other errors
+	for _, in := range []string{`{"a":1}{"b":2}`, `{"t":"}{"}`, `{"a":[1 2]}`, `{"a":{"b":1}}`, `{"t":"\"}{\""}`} {
+		if got, ok := HealMissingCommas(in); ok {
+			t.Errorf("heal %q should be refused, got %q", in, got)
+		}
+	}
+	if _, err := Parse([]byte(`{"nodes":[{"id":"a"} 7]}`)); err == nil {
+		t.Error("a missing comma before a non-object stays invalid")
+	}
+	if _, err := Parse([]byte(`{"nodes":[]}{"edges":[]}`)); err == nil {
+		t.Error("top-level concatenation stays invalid")
+	}
+}
+
+func TestParseHealsConcurrentFirstCards(t *testing.T) {
+	text := "{\n\t\"nodes\":[\n\t\t{\"id\":\"a\",\"type\":\"text\",\"text\":\"one\",\"x\":0,\"y\":0,\"width\":10,\"height\":10}\n\t\t{\"id\":\"b\",\"type\":\"text\",\"text\":\"two\",\"x\":0,\"y\":20,\"width\":10,\"height\":10}\n\t],\n\t\"edges\":[]\n}"
+	c, err := Parse([]byte(text))
+	if err != nil || len(c.Nodes) != 2 || c.Nodes[1].ID != "b" {
+		t.Fatalf("healed parse: %+v %v", c, err)
+	}
+}
+
+func TestEmptyJSON(t *testing.T) {
+	if EmptyJSON != "{\n\t\"nodes\":[],\n\t\"edges\":[]\n}" {
+		t.Fatalf("empty canvas bytes %q", EmptyJSON)
+	}
+	c, err := Parse([]byte(EmptyJSON))
+	if err != nil || len(c.Nodes) != 0 || len(c.Edges) != 0 {
+		t.Fatal("empty canvas parses")
+	}
+}

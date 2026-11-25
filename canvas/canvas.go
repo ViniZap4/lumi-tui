@@ -59,9 +59,79 @@ func Parse(data []byte) (*Canvas, error) {
 		return c, nil
 	}
 	if err := json.Unmarshal(data, c); err != nil {
-		return nil, fmt.Errorf("invalid JSON Canvas: %w", err)
+		// Concurrent first cards: objects in an array with no comma
+		// between them. Read them as if the comma were there (a read-side
+		// view only; nothing is written back).
+		healed, ok := HealMissingCommas(string(data))
+		if !ok {
+			return nil, fmt.Errorf("invalid JSON Canvas: %w", err)
+		}
+		c = &Canvas{}
+		if json.Unmarshal([]byte(healed), c) != nil {
+			return nil, fmt.Errorf("invalid JSON Canvas: %w", err)
+		}
 	}
 	return c, nil
+}
+
+// EmptyJSON is a new canvas's exact bytes, the same on every client (no
+// trailing newline).
+const EmptyJSON = "{\n\t\"nodes\":[],\n\t\"edges\":[]\n}"
+
+// HealMissingCommas is the one corruption tolerated on read: two array
+// elements that are objects with NO comma between them (`}` whitespace
+// `{` inside an array, outside strings). Two replicas adding the first
+// card to an empty multi-line canvas at the same time merge exactly like
+// that. It returns the text with those commas added, or ok=false when
+// there is nothing to heal. Nothing broader is accepted: no top-level
+// concatenation, no other missing commas. Port of the web's
+// healMissingCommas (lib/canvas/canvas-recover.ts).
+func HealMissingCommas(s string) (string, bool) {
+	var stack []byte
+	var at []int
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '"' {
+			// skip a string, escapes included
+			for i++; i < len(s); i++ {
+				if s[i] == '\\' {
+					i++
+				} else if s[i] == '"' {
+					break
+				}
+			}
+			continue
+		}
+		switch c {
+		case '{', '[':
+			stack = append(stack, c)
+		case '}', ']':
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+			if c == '}' && len(stack) > 0 && stack[len(stack)-1] == '[' {
+				j := i + 1
+				for j < len(s) && (s[j] == ' ' || s[j] == '\t' || s[j] == '\n' || s[j] == '\r') {
+					j++
+				}
+				if j < len(s) && s[j] == '{' {
+					at = append(at, i+1)
+				}
+			}
+		}
+	}
+	if len(at) == 0 {
+		return "", false
+	}
+	var b strings.Builder
+	prev := 0
+	for _, p := range at {
+		b.WriteString(s[prev:p])
+		b.WriteByte(',')
+		prev = p
+	}
+	b.WriteString(s[prev:])
+	return b.String(), true
 }
 
 // RowKind tells what an outline row is.

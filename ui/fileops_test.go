@@ -13,6 +13,8 @@ func TestPlanCreate(t *testing.T) {
 		{"a/b", "/top", createPlan{kind: planNote, title: "top"}},
 		{"a/b", "../x.md", createPlan{kind: planNote, title: "x", folder: "a"}},
 		{"a", "dir/", createPlan{kind: planFolder, path: "a/dir"}},
+		{"a", "map.canvas", createPlan{kind: planCanvas, path: "a/map.canvas"}},
+		{"", "b/Plano.CANVAS", createPlan{kind: planCanvas, path: "b/Plano.CANVAS"}},
 		{"", "../../../etc/passwd", createPlan{kind: planNote, title: "passwd", folder: "etc"}},
 		{"", "  ", createPlan{err: "digite um nome (termine com / para pasta)"}},
 		{"", "..", createPlan{err: "isso é a raiz do livro"}},

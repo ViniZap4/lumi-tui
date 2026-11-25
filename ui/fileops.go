@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/vinizap/lumi/tui-client/canvas"
 	"github.com/vinizap/lumi/tui-client/domain"
 	"github.com/vinizap/lumi/tui-client/filesystem"
 )
@@ -18,6 +19,7 @@ import (
 //	a name        → note "name" in the current folder
 //	a a/b/name    → note in a/b under the current folder (made on the fly)
 //	a dir/        → a folder
+//	a name.canvas → an empty JSON Canvas (canvas.EmptyJSON)
 //	r name        → retitle the note
 //	r dir/name    → move (relative to the note's folder; leading `/` is
 //	                the book root, `..` climbs, clamped at the root) + retitle
@@ -37,6 +39,7 @@ const (
 	planNone
 	planFolder
 	planNote
+	planCanvas // a new JSON Canvas (name.canvas)
 )
 
 type createPlan struct {
@@ -149,6 +152,12 @@ func planCreate(dir, raw string) createPlan {
 	}
 	if isFolder {
 		return createPlan{kind: planFolder, path: rel}
+	}
+	if isCanvasPath(rel) {
+		if b := baseOf(rel); strings.TrimSpace(b[:len(b)-len(".canvas")]) == "" {
+			return createPlan{err: "o canvas precisa de um nome"}
+		}
+		return createPlan{kind: planCanvas, path: rel}
 	}
 	title := strings.TrimSpace(stemOf(rel))
 	if title == "" {
@@ -291,6 +300,29 @@ func (m Model) applyCreate(p createPlan) (dir, sel string, err error) {
 			return "", "", err
 		}
 		return dir, n.Path, nil
+	case planCanvas:
+		abs := m.absOf(p.path)
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			return "", "", err
+		}
+		// the same empty canvas bytes as the web and the Mac; never
+		// overwrite an existing file
+		f, err := os.OpenFile(abs, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err != nil {
+			if os.IsExist(err) {
+				return "", "", fmt.Errorf("%s já existe", p.path)
+			}
+			return "", "", err
+		}
+		_, werr := f.WriteString(canvas.EmptyJSON)
+		if cerr := f.Close(); werr == nil {
+			werr = cerr
+		}
+		if werr != nil {
+			os.Remove(abs)
+			return "", "", werr
+		}
+		return filepath.Dir(abs), abs, nil
 	}
 	return "", "", fmt.Errorf("%s", p.err)
 }
