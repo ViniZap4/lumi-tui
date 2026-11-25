@@ -21,7 +21,7 @@ var keymapHelp = []keymapSection{
 		{"- <leader>e :explore", "open it (also ≡ notes, palette)"},
 		{"⏎  ⌃v  ⌃s", "open here / vertical / horizontal split"},
 		{"Esc  q", "close (click outside too)"},
-		{"gb  h at book root", "books level (accounts → books)"},
+		{"gb  h at book root", "Livros: books grouped by account"},
 		{"[  ]", "previous / next book"},
 	}},
 	{"Explore", [][2]string{

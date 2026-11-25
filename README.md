@@ -17,8 +17,10 @@ Built with [Go](https://golang.org) and [Bubbletea](https://github.com/charmbrac
   `~` root, `/` filter + `n/N`, `a` new (`a/b/name`, `dir/`), `r`
   rename/move, `d` delete, `y/p` copy, `m` move, `.` hidden, `zp` preview,
   `R` refresh, `e/i` edit, `E` the other editor, `⌃h/⌃l` column focus
-- Books in the same overlay: `gb` (or `h` at the book root) shows accounts →
-  books with their sync state; `[ ]` and `g1–9` switch. A server book with
+- Books in the same overlay: `gb` (or `h` at the book root) shows the
+  Livros shelf, every book grouped under its account with its sync state;
+  `j/k` cross groups, and with 3+ accounts `h` climbs to "Contas e
+  servidores". `[ ]` and `g1–9` switch, `gh` goes back to this book. A server book with
   no folder on this device is cloned in place: `c` / `⏎` (or the preview's
   clickable action) proposes `<books_dir>/<slug>` (Settings, default
   `~/lumi`), shows live progress (`Esc` cancels and cleans up), registers it

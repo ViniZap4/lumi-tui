@@ -1,0 +1,30 @@
+ ≡ notes                                                                                       lumi
+
+
+          ╭──────────────────────────────────────────────────────────────────────────────╮
+          │ ⌂ Contas › Local › ◫ Livros                              5 livros · 4 contas │
+          │──────────────────────────────────────────────────────────────────────────────│
+          │  L  Local  ⌂ este aparelho           1 livro  │  ▤ Diário                    │
+          │ › ▤ Diário  ▫ não ligado         aberto  g1   │  Local · este aparelho       │
+          │                                               │                              │
+          │  A  ana  ⌂ lumi.a.dev ◌             2 livros  │  estado      ▫ não ligado    │
+          │   ▤ Trabalho  ● precisa entrar           g2   │  aberto      nunca neste ap… │
+          │   ▤ Projetos  ● precisa entrar           g4   │  pasta       ~/Diário        │
+          │                                               │                              │
+          │  B  bia  ⌂ notes.b.org ◌             1 livro  │  aberto agora — ⏎ ou l volt… │
+          │   ▤ Família  ● precisa entrar            g3   │                              │
+          │                                               │  ⏎ abrir · J/K ordem · s de… │
+          │  A  ana  ⌂ notes.b.org ◌             1 livro  │                              │
+          │   ▤ Receitas  ● precisa entrar           g5   │                              │
+          │                                               │                              │
+          │                                               │                              │
+          │                                               │                              │
+          │                                               │                              │
+          │                                               │                              │
+          │ j k mover  ⏎ l abrir livro  h contas  Esc fechar  g1–9 livro n  …   5 livros │
+          ╰──────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+ BOOKS  livros                                                                 ▫ não ligado  Diário

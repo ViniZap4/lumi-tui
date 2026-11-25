@@ -134,7 +134,7 @@ type Model struct {
 	activeBookID    string
 	showBookDetails bool
 	lastMirrorGen   uint64
-	// books level of the floating explorer (accounts → books).
+	// books level of the floating explorer (the Livros shelf).
 	bk *booksLevel
 	// clone is the clone-in-place / link-folder card (nil when closed).
 	clone *cloneFlow

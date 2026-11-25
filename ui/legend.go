@@ -186,10 +186,12 @@ func legendFor(ctx LegendContext, pending string) []LegendItem {
 	case CtxPalette:
 		return []LegendItem{{"↑ ↓ ⌃n ⌃p", "select"}, {"⏎", "run"}, {"Esc", "close"}, {":", "commands only"}, {"Tab", "next"}}
 	case CtxBooks:
+		// the Livros shelf, pt-BR like the web's BOOKS_ITEMS; h reaches
+		// "Contas e servidores" only with 3+ accounts
 		return []LegendItem{
-			{"j k", "move"}, {"h l", "accounts / books"}, {"⏎", "open"}, {"1–9", "book n"},
-			{"c", "clone here"}, {"L", "link folder"}, {"J K", "reorder"}, {"s", "details"}, {"a", "accounts"},
-			{"Esc q", "close"},
+			{"j k", "mover"}, {"⏎ l", "abrir livro"}, {"h", "contas"}, {"Esc", "fechar"}, {"g1–9", "livro n"},
+			{"gh", "este livro"}, {"c", "clonar aqui"}, {"L", "ligar pasta"}, {"J K", "ordem"}, {"s", "detalhes"},
+			{"a", "contas"},
 		}
 	case CtxSettings:
 		return []LegendItem{{"j k", "move"}, {"h l", "change"}, {"⏎", "edit"}, {"Esc ,", "back"}}

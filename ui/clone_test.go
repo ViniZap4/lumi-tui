@@ -118,7 +118,7 @@ func toServerBook(t *testing.T, m Model) Model {
 	if m.bk == nil {
 		t.Fatal("books level")
 	}
-	m = keys(t, m, "h", "j", "l")
+	m = keys(t, m, "j")
 	v := stripAnsi(m.View())
 	if !strings.Contains(v, "c clonar aqui") || !strings.Contains(v, "sem pasta") {
 		t.Fatalf("preview should offer clone in place:\n%s", v)

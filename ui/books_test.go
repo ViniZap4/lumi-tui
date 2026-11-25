@@ -42,24 +42,113 @@ func TestGbOpensBooksLevelAndEnterSwitches(t *testing.T) {
 	if !m.floatExp || m.bk == nil || m.legendContext() != CtxBooks {
 		t.Fatal("gb should open the floating explorer at the books level")
 	}
-	view := m.View()
-	for _, want := range []string{"livros", "Alpha", "Beta", "local", "u@s"} {
+	view := stripAnsi(m.View())
+	for _, want := range []string{"◫ Livros", "3 livros · 2 contas", "Alpha", "Beta", "Local", "⌂ este aparelho", "⌂ s", "g1", "g3", "aberto"} {
 		if !strings.Contains(view, want) {
-			t.Errorf("books level missing %q", want)
+			t.Errorf("shelf missing %q", want)
 		}
 	}
-	// accounts → books: the remote account lists its pathless book
-	m, _ = pressKeys(m, "h", "j")
+	// one list across account groups: j j lands on the remote book
+	m, _ = pressKeys(m, "j", "j")
 	if v := m.View(); !strings.Contains(v, "Remote") || !strings.Contains(v, "sem pasta") {
-		t.Errorf("remote account should list Remote (sem pasta)")
+		t.Errorf("j/k cross groups: Remote (sem pasta) expected")
 	}
-	m, _ = pressKeys(m, "k", "l")
-	m, cmd := pressKeys(m, "j")
+	// two accounts: no accounts layer, h stays on Livros and says so
+	m, _ = pressKeys(m, "h")
+	if m.bk == nil || m.bk.accounts || !strings.Contains(m.toastMsg, "Livros é o topo") {
+		t.Fatalf("h with 2 accounts: %+v toast %q", m.bk, m.toastMsg)
+	}
+	m, _ = pressKeys(m, "k")
 	tm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = tm.(Model)
 	if m.SwitchTarget() != b || cmd == nil {
 		t.Fatalf("switch target %q", m.SwitchTarget())
 	}
+}
+
+// newShelfModel has books on four accounts: local, ana@a, bia@b, ana@b
+// (interleaved in selector order), enough for "Contas e servidores".
+func newShelfModel(t *testing.T) Model {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	a := t.TempDir()
+	reg := &books.Registry{}
+	reg.Add(books.Book{ID: "l1", Name: "Diário", Kind: books.KindLocal, Path: "~/Diário"})
+	reg.Add(books.Book{ID: "r1", Name: "Trabalho", Kind: books.KindBound, ServerURL: "https://lumi.a.dev", Account: "ana", VaultID: "v1"})
+	reg.Add(books.Book{ID: "r2", Name: "Família", Kind: books.KindBound, ServerURL: "https://notes.b.org", Account: "bia", VaultID: "v2"})
+	reg.Add(books.Book{ID: "r3", Name: "Projetos", Kind: books.KindBound, ServerURL: "https://lumi.a.dev", Account: "ana", VaultID: "v3"})
+	reg.Add(books.Book{ID: "r4", Name: "Receitas", Kind: books.KindBound, ServerURL: "https://notes.b.org", Account: "ana", VaultID: "v4"})
+	st := &books.Store{Path: filepath.Join(t.TempDir(), "books.yaml"), Registry: reg}
+	m := NewModelWithInitialNote(a, "").WithBooks(feed.NewManager(st, nil), "l1")
+	m.width, m.height = 100, 30
+	return m
+}
+
+func TestShelfGroupsAndAccountsLayer(t *testing.T) {
+	m := newShelfModel(t)
+	m, _ = pressKeys(m, "g", "b")
+	m = settle(m, nil)
+	// grouped by account, each where its first book appears; the g
+	// numbers stay the selector order
+	reg := m.bookMgr.Registry()
+	var got []string
+	for _, ix := range shelfFlat(shelfGroups(reg)) {
+		got = append(got, reg[ix].Name)
+	}
+	if strings.Join(got, ",") != "Diário,Trabalho,Projetos,Família,Receitas" {
+		t.Fatalf("shelf order %v", got)
+	}
+	v := stripAnsi(m.View())
+	if !strings.Contains(v, "g3") || !strings.Contains(v, "Contas") || !strings.Contains(v, "4 contas") {
+		t.Fatalf("shelf:\n%s", v)
+	}
+	// j j: Projetos (crosses nothing), j: Família (next group)
+	m, _ = pressKeys(m, "j", "j", "j")
+	if ix := m.shelfBook(); reg[ix].ID != "r2" {
+		t.Fatalf("cursor on %s", reg[ix].Name)
+	}
+	// h climbs to the accounts layer on Família's account
+	m, _ = pressKeys(m, "h")
+	if !m.bk.accounts || m.bk.acct != 2 || !strings.Contains(stripAnsi(m.View()), "Contas e servidores") {
+		t.Fatalf("accounts layer: %+v", m.bk)
+	}
+	// j, l: the next account's first book (ana@notes.b.org → Receitas)
+	m, _ = pressKeys(m, "j", "l")
+	if m.bk.accounts || reg[m.shelfBook()].ID != "r4" {
+		t.Fatalf("l on an account lands on its first book: %+v", m.bk)
+	}
+	// J/K reorder; the cursor follows the book
+	m, _ = pressKeys(m, "K")
+	reg = m.bookMgr.Registry()
+	if ix := m.shelfBook(); ix < 0 || reg[ix].ID != "r4" {
+		t.Fatalf("cursor follows the moved book")
+	}
+	// gh goes back to this book's files
+	m, _ = pressKeys(m, "g", "h")
+	if m.bk != nil || !m.floatExp {
+		t.Fatal("gh: back to the files")
+	}
+}
+
+func TestShelfMouseSelectsBook(t *testing.T) {
+	m := newShelfModel(t)
+	m, _ = pressKeys(m, "g", "b")
+	m = settle(m, nil)
+	x, y := findText(t, m.View(), "Família")
+	tm, _ := m.Update(tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	m = tm.(Model)
+	if ix := m.shelfBook(); ix < 0 || m.bookMgr.Registry()[ix].ID != "r2" {
+		t.Fatalf("click selects Família, got %d", ix)
+	}
+}
+
+func TestShelfGoldens(t *testing.T) {
+	m := newShelfModel(t)
+	m, _ = pressKeys(m, "g", "b")
+	m = settle(m, nil)
+	golden(t, "books-shelf-100x30", stripAnsi(m.View()))
+	m, _ = pressKeys(m, "h")
+	golden(t, "books-accounts-100x30", stripAnsi(m.View()))
 }
 
 func TestG3OnPathlessBookAsksSignInInsteadOfCLIHint(t *testing.T) {
