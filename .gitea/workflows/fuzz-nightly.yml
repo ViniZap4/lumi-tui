@@ -1,0 +1,60 @@
+# Fuzz noturno do lumi-tui (Phase 3 quality harness, WP 0.10): cada alvo
+# nativo de fuzz do Go (kanban, canvas, frontmatter/WriteBody) por 5 min,
+# 30 min no total. Um crasher derruba o job e é impresso por inteiro para
+# virar entrada permanente em <pkg>/testdata/fuzz/<Alvo>/.
+# Local: FUZZTIME=2m scripts/fuzz.sh
+name: fuzz-nightly
+
+on:
+  schedule:
+    - cron: '13 6 * * *'   # 03:13 em Brasília
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: 'tempo por alvo (ex.: 5m)'
+        required: false
+        default: '5m'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-nightly
+  cancel-in-progress: false
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    container:
+      image: golang:1.25.14-bookworm
+    timeout-minutes: 50
+    env:
+      GITEA_URL: ${{ vars.LAN_GIT_URL }}
+      FUZZTIME: ${{ github.event.inputs.fuzztime || '5m' }}
+    steps:
+      - name: checkout
+        env:
+          TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          [ -n "$GITEA_URL" ] || { echo "::error::defina a variável de organização LAN_GIT_URL"; exit 1; }
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          git config --global "http.$GITEA_URL/.extraheader" "AUTHORIZATION: basic $auth"
+          git config --global --add safe.directory "$PWD"
+          git init -q .
+          git remote add origin "$GITEA_URL/${{ github.repository }}.git"
+          git fetch -q --depth 1 origin "$SHA"
+          git checkout -q FETCH_HEAD
+          git config --global --unset-all "http.$GITEA_URL/.extraheader"
+          git log --oneline -1
+
+      - name: fuzz (30 min)
+        run: scripts/fuzz.sh
+
+      - name: crashers
+        if: failure()
+        run: |
+          for f in $(git ls-files --others --exclude-standard -- '*/testdata/fuzz/*'); do
+            echo "::error file=$f::fuzz crasher"; echo "--- $f"; cat "$f"; echo
+          done

@@ -252,6 +252,20 @@ func (b *Board) insertAt(c, i int) (int, string) {
 		if len(ls) > 0 && strings.TrimSpace(ls[0].text) == "" && ls[0].start < col.End {
 			pos = ls[0].next
 		}
+		// Indented lines with no card above them would become the new
+		// card's body; land after them (same fix as the web planner).
+		for _, l := range ls {
+			if l.start >= col.End {
+				break
+			}
+			if l.next <= pos || strings.TrimSpace(l.text) == "" {
+				continue
+			}
+			if l.text[0] != ' ' && l.text[0] != '\t' {
+				break
+			}
+			pos = l.next
+		}
 	}
 	prefix := ""
 	if pos > 0 && b.Text[pos-1] != '\n' {
