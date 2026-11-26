@@ -92,7 +92,8 @@ func titles(b *Board) []string {
 	var out []string
 	for _, c := range b.Columns {
 		for _, k := range c.Cards {
-			out = append(out, k.Title)
+			// Title plus body: a move must not hand lines to another card.
+			out = append(out, k.Title+"\x01"+strings.Join(k.Body, "\x01"))
 		}
 	}
 	sort.Strings(out)
@@ -158,4 +159,22 @@ func FuzzEdits(f *testing.F) {
 			}
 		}
 	})
+}
+
+// TestInsertSkipsOrphanIndentedLines: a card moved or added into an empty
+// lane whose heading is followed by indented lines with no card above
+// them used to absorb those lines as its body (found by the web
+// fast-check properties; same planner shape here).
+func TestInsertSkipsOrphanIndentedLines(t *testing.T) {
+	text := "## A\n- [ ] plain item\n## B\n  indented\n"
+	out := Apply(text, Parse(text).Move(0, 0, 1, 0))
+	b := Parse(out)
+	if got := b.Columns[1].Cards; len(got) != 1 || got[0].Title != "plain item" || len(got[0].Body) != 0 {
+		t.Fatalf("moved card %+v in %q", got, out)
+	}
+	text = "## A\n\n\torphan\n\n\tmore\ntext\n"
+	out = Apply(text, Parse(text).Insert(0, 0, "novo"))
+	if got := Parse(out).Columns[0].Cards; len(got) != 1 || got[0].Title != "novo" || len(got[0].Body) != 0 {
+		t.Fatalf("inserted card %+v in %q", got, out)
+	}
 }
