@@ -61,6 +61,7 @@ func (m Model) buildConfigItems(cfg *config.Config) []ConfigItem {
 		{Label: "Explorer", Kind: ConfigHeader},
 		{Label: "Preview column", Kind: ConfigCycle, Key: "show_preview", Value: boolStr(!m.previewHidden), Options: []string{"off", "on"}},
 		{Label: "Command legend", Kind: ConfigCycle, Key: "show_legend", Value: boolStr(m.legendOn), Options: []string{"off", "on"}},
+		{Label: "Modo zen (<leader>z)", Kind: ConfigCycle, Key: "zen", Value: boolStr(m.zen), Options: []string{"off", "on"}},
 		{Label: "Pane navigation", Kind: ConfigCycle, Key: "pane_nav", Value: boolStr(m.paneNav), Options: []string{"off", "on"}},
 		{Label: "Mouse", Kind: ConfigCycle, Key: "mouse", Value: boolStr(m.mouseOn), Options: []string{"off", "on"}},
 		{Label: "Hidden files", Kind: ConfigCycle, Key: "show_hidden", Value: boolStr(m.showHidden), Options: []string{"off", "on"}},
@@ -221,6 +222,9 @@ func (m *Model) applyConfigChange(key, value string) tea.Cmd {
 	case "show_legend":
 		cfg.ShowLegend = value == "on"
 		m.legendOn = cfg.ShowLegend
+	case "zen":
+		cfg.Zen = value == "on"
+		m.zen = cfg.Zen
 	case "pane_nav":
 		cfg.PaneNav = value == "on"
 		m.paneNav = cfg.PaneNav

@@ -31,6 +31,7 @@ type Config struct {
 	PaneNav     bool // Ctrl-h/j/k/l pane focus
 	Mouse       bool // click / wheel / double-click
 	ShowHidden  bool // dot files and folders in listings (`.`)
+	Zen         bool // Modo zen: no legend / status line at rest
 
 	// Notes (web/Apple parity, SPEC-PARTE2 §9)
 	DefaultEditor   string   // "internal" (built-in vim) | "external" ($VISUAL/$EDITOR or Editor)
@@ -160,6 +161,8 @@ func Load() *Config {
 			cfg.Mouse = value != "false"
 		case "show_hidden":
 			cfg.ShowHidden = value == "true"
+		case "zen":
+			cfg.Zen = value == "true"
 		case "default_editor":
 			if value == "internal" || value == "external" {
 				cfg.DefaultEditor = value
@@ -254,6 +257,7 @@ show_legend: %s
 pane_nav: %s
 mouse: %s
 show_hidden: %s
+zen: %s
 
 # Notes and the built-in editor
 default_editor: %s
@@ -270,7 +274,7 @@ web_origins: %s
 # Books: where clone-in-place proposes new book folders
 books_dir: %s
 `, editorCmd, c.ThemeMode, c.DarkTheme, c.LightTheme, showLn, c.CursorStyle, c.PreviewLines, c.SearchType,
-		b(c.ShowPreview), b(c.ShowLegend), b(c.PaneNav), b(c.Mouse), b(c.ShowHidden),
+		b(c.ShowPreview), b(c.ShowLegend), b(c.PaneNav), b(c.Mouse), b(c.ShowHidden), b(c.Zen),
 		orDefault(c.DefaultEditor, "internal"), orDefault(c.OpenIn, "reader"), strings.Join(c.EscapeSequences, ","),
 		c.EscapeTimeoutMs, b(c.Vimrc), b(c.Autosave), c.AutosaveMs, b(c.ClipboardSync), b(c.ReduceMotion), c.webOrigins(),
 		orDefault(c.BooksDir, "~/lumi"))

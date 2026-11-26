@@ -23,6 +23,7 @@ var keymapHelp = []keymapSection{
 		{"Esc  q", "close (click outside too)"},
 		{"gb  h at book root", "Livros: books grouped by account"},
 		{"[  ]", "previous / next book"},
+		{"<leader>z  :zen", "Modo zen: no legend / status line (shown while a key is pending)"},
 	}},
 	{"Explore", [][2]string{
 		{"j k  ↓ ↑", "move"},

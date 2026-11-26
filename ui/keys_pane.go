@@ -22,7 +22,8 @@ import (
 //	canvas   j k Tab  ⏎/gf  ⌃w f  zv
 //
 // everywhere: ⌃w v s q o = w p h j k l f F, ⌃h/j/k/l, - and <leader>e
-// (floating explorer), : / space (palette), ? help, , settings.
+// (floating explorer), <leader>z (Modo zen), : / space (palette),
+// ? help, , settings.
 
 // updateNote routes a key to the focused pane.
 func (m Model) updateNote(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -76,6 +77,10 @@ func (m Model) commonNoteKey(key string) (Model, tea.Cmd, bool) {
 		if pre == m.leaderKey() && key == "e" {
 			mm, cmd := m.openFloatExplorer()
 			return mm, cmd, true
+		}
+		if pre == m.leaderKey() && key == "z" {
+			m.toggleZen()
+			return m, nil, true
 		}
 		if pre == "g" || pre == "z" || pre == m.leaderKey() {
 			return m, nil, false
@@ -420,8 +425,11 @@ func (m Model) runEffect(p *notePane, ef vim.Effect) (Model, tea.Cmd) {
 			return m, m.openNoteInApp(p)
 		}
 	case vim.EffHostMap:
-		if ef.Arg == "explorer" {
+		switch ef.Arg {
+		case "explorer":
 			return m.openFloatExplorer()
+		case "zen":
+			m.toggleZen()
 		}
 	case vim.EffEx:
 		return m.exCommand(p, ef)
@@ -489,6 +497,8 @@ func (m Model) exCommand(p *notePane, ef vim.Effect) (Model, tea.Cmd) {
 		return m, m.shapeCmd()
 	case "Ex", "Explore", "explore", "explorer":
 		return m.openFloatExplorer()
+	case "zen":
+		m.toggleZen()
 	case "settings", "set":
 		m.enterConfig()
 	case "books", "livros":

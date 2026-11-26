@@ -182,7 +182,7 @@ func (m Model) engineOptions() vim.Options {
 			o.ClipboardUnnamed = rc.Options.ClipboardUnnamed
 		}
 	}
-	o.HostMaps = map[string]string{"<leader>e": "explorer"}
+	o.HostMaps = map[string]string{"<leader>e": "explorer", "<leader>z": "zen"}
 	return o
 }
 

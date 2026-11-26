@@ -168,6 +168,8 @@ type Model struct {
 	legendOn bool
 	paneNav  bool
 	mouseOn  bool
+	// zen: Modo zen, no legend / status line at rest (zen.go).
+	zen bool
 	// filter narrows the current folder in place (`/`). allItems is the
 	// unfiltered listing; filterTyping is true while the prompt is open.
 	filter       string
@@ -253,6 +255,7 @@ func NewModelWithInitialNote(rootDir, notePath string) Model {
 		previewHidden: !cfg.ShowPreview,
 		showHidden:    cfg.ShowHidden,
 		legendOn:      cfg.ShowLegend,
+		zen:           cfg.Zen,
 		paneNav:       cfg.PaneNav,
 		mouseOn:       cfg.Mouse,
 		prose:         newProseCache(),
