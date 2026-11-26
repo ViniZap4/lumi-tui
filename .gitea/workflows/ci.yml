@@ -23,6 +23,8 @@ jobs:
     timeout-minutes: 15
     env:
       GITEA_URL: ${{ vars.LAN_GIT_URL }}
+      # govulncheck fixado (a versão mais nova que ainda compila com Go 1.25).
+      GOVULNCHECK_VERSION: "v1.7.0"
     steps:
       - name: checkout
         env:
@@ -51,6 +53,14 @@ jobs:
 
       - name: go vet
         run: go vet ./...
+
+      - name: govulncheck (bloqueante)
+        # Falha em qualquer vulnerabilidade alcançável que não esteja em
+        # .govulncheck-allow com data de validade ainda não vencida.
+        run: |
+          set -eu
+          go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+          sh scripts/govulncheck.sh ./...
 
       - name: go test
         run: go test -count=1 ./...
