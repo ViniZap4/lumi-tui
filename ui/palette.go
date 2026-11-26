@@ -56,6 +56,7 @@ var paletteCommands = []paletteEntry{
 	{kind: palCommand, label: "Toggle preview column", keys: "zp", id: "preview"},
 	{kind: palCommand, label: "Toggle hidden files", keys: ".", id: "hidden"},
 	{kind: palCommand, label: "Toggle command legend", keys: "", id: "legend"},
+	{kind: palCommand, label: "Modo zen (no legend / status line)", keys: "<leader>z :zen", id: "zen"},
 	{kind: palCommand, label: "Go to book root", keys: "~", id: "root"},
 	{kind: palCommand, label: "Books", keys: "gb", id: "books"},
 	{kind: palCommand, label: "Sync details", keys: "gs", id: "sync"},

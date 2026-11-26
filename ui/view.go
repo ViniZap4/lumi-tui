@@ -55,12 +55,18 @@ func (m Model) View() string {
 		body = m.overlayCenter(body, m.renderHelp(), false)
 	}
 
-	content := body
+	var rows []string
 	if m.legendVisible() {
-		content += "\n" + m.renderLegendRow()
+		rows = append(rows, m.renderLegendRow())
 	}
 	if m.statusVisible() {
-		content += "\n" + m.renderStatusLine()
+		rows = append(rows, m.renderStatusLine())
+	}
+	content := body
+	if m.zen {
+		content = overlayBottom(body, rows)
+	} else if len(rows) > 0 {
+		content += "\n" + strings.Join(rows, "\n")
 	}
 	content = m.overlayToast(content)
 	return compactSGR(m.fillBg(content))

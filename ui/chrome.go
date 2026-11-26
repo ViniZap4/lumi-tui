@@ -19,15 +19,23 @@ import (
 //	└────────────────────────────────────────────────────────┘
 
 // legendVisible: the legend row is shown when enabled, and always while
-// a prompt, a confirmation or the filter needs the line.
+// a prompt, a confirmation or the filter needs the line. In zen it shows
+// only while input is in flight (zen.go).
 func (m Model) legendVisible() bool {
+	if m.zen {
+		return m.zenReveal()
+	}
 	return m.legendOn || m.showInput || m.showConfirm || m.filterTyping
 }
 
-func (m Model) statusVisible() bool { return true }
+func (m Model) statusVisible() bool { return !m.zen || m.zenReveal() }
 
-// bottomRows is how many rows the chrome takes.
+// bottomRows is how many rows the chrome takes (none in zen: revealed
+// chrome is drawn over the body, so the text never reflows).
 func (m Model) bottomRows() int {
+	if m.zen {
+		return 0
+	}
 	n := 0
 	if m.legendVisible() {
 		n++

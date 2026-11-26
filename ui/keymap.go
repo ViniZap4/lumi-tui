@@ -689,6 +689,8 @@ func (m Model) runCommand(id string) (tea.Model, tea.Cmd) {
 	case "hidden":
 		mm, cmd := m.updateListPane(".")
 		return mm, tea.Batch(open, cmd)
+	case "zen":
+		m.toggleZen()
 	case "legend":
 		m.legendOn = !m.legendOn
 		m.persist(func(c *config.Config) { c.ShowLegend = m.legendOn })
