@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: golang:1.25.14-bookworm
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       GITEA_URL: ${{ vars.LAN_GIT_URL }}
     steps:
@@ -38,6 +38,8 @@ jobs:
           git remote add origin "$GITEA_URL/${{ github.repository }}.git"
           git fetch -q --depth 1 origin "$SHA"
           git checkout -q FETCH_HEAD
+          # Base do gate de benchmarks (PRs comparam com a main).
+          git fetch -q --depth 1 origin main:refs/remotes/origin/main || true
           git config --global --unset-all "http.$GITEA_URL/.extraheader"
           git log --oneline -1
 
@@ -54,6 +56,19 @@ jobs:
 
       - name: go test
         run: go test -count=1 ./...
+
+      # Gate de desempenho (docs/PERF-BUDGETS.md no guarda-chuva):
+      # benchmarks do PR e da main intercalados, comparados com benchstat;
+      # bloqueia regressão > 10 % significativa em sec/op ou allocs/op.
+      - name: benchmarks vs main (benchstat)
+        if: github.event_name == 'pull_request'
+        env:
+          BENCH_ROUNDS: "8"
+          BENCH_TIME: "200ms"
+        run: |
+          set -eu
+          go install golang.org/x/perf/cmd/benchstat@v0.0.0-20260813145340-fd4a688df892
+          BENCHSTAT="$(go env GOPATH)/bin/benchstat" scripts/bench-gate.sh origin/main
 
       - name: build
         run: go build -o /tmp/lumi .
