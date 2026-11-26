@@ -1,6 +1,8 @@
 module github.com/vinizap/lumi/tui-client
 
-go 1.25.0
+go 1.26.0
+
+toolchain go1.26.11
 
 require (
 	github.com/alecthomas/chroma/v2 v2.14.0
@@ -12,7 +14,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/mattn/go-runewidth v0.0.16
 	github.com/muesli/termenv v0.16.0
-	golang.org/x/term v0.31.0
+	golang.org/x/term v0.48.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -38,7 +40,7 @@ require (
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yuin/goldmark v1.7.17 // indirect
 	github.com/yuin/goldmark-emoji v1.0.5 // indirect
-	golang.org/x/net v0.38.0 // indirect
-	golang.org/x/sys v0.36.0 // indirect
-	golang.org/x/text v0.39.0 // indirect
+	golang.org/x/net v0.63.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 )
